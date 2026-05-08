@@ -110,7 +110,7 @@ func (r *WebhookResource) ListDispatches(ctx context.Context, accountID string, 
 
 	return &models.PaginatedResult[models.WebhookDispatch]{
 		Data:       result,
-		Pagination: extractPagination(resp.Headers),
+		Pagination: extractPaginationMeta(resp.Headers),
 	}, nil
 }
 

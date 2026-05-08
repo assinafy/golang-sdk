@@ -60,7 +60,7 @@ func (r *SignerResource) List(ctx context.Context, accountID string, params *mod
 
 	return &models.PaginatedResult[models.Signer]{
 		Data:       result,
-		Pagination: extractPagination(resp.Headers),
+		Pagination: extractPaginationMeta(resp.Headers),
 	}, nil
 }
 

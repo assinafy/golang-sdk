@@ -131,7 +131,7 @@ err = client.Assignments.ResendNotification(ctx, documentID, assignmentID, signe
 err = client.Assignments.Cancel(ctx, documentID, assignmentID, "reason")
 
 // Decline
-err = client.Assignments.Decline(ctx, documentID, assignmentID, "reason")
+err = client.Assignments.Decline(ctx, documentID, assignmentID, signerAccessCode, "reason")
 ```
 
 ### Webhooks

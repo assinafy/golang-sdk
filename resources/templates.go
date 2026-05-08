@@ -45,7 +45,7 @@ func (r *TemplateResource) List(ctx context.Context, accountID string, params *m
 
 	return &models.PaginatedResult[models.TemplateListItem]{
 		Data:       result,
-		Pagination: extractPagination(resp.Headers),
+		Pagination: extractPaginationMeta(resp.Headers),
 	}, nil
 }
 

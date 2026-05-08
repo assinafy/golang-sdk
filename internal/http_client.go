@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,6 +134,10 @@ func (c *HTTPClient) Do(ctx context.Context, req *Request, result interface{}) (
 	}
 	defer resp.Body.Close()
 
+	return c.parseResponse(resp, result)
+}
+
+func (c *HTTPClient) parseResponse(resp *http.Response, result interface{}) (*Response, error) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
@@ -181,9 +188,25 @@ func (c *HTTPClient) Do(ctx context.Context, req *Request, result interface{}) (
 func (c *HTTPClient) UploadMultipart(ctx context.Context, path string, fieldName, fileName string, fileContent []byte, formFields map[string]string, result interface{}) (*Response, error) {
 	urlStr := c.baseURL + path
 
-	body, contentType, err := createMultipartBody(fieldName, fileName, fileContent, formFields)
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	part, err := writer.CreateFormFile(fieldName, fileName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := part.Write(fileContent); err != nil {
+		return nil, fmt.Errorf("failed to write file content: %w", err)
+	}
+
+	for k, v := range formFields {
+		if err := writer.WriteField(k, v); err != nil {
+			return nil, fmt.Errorf("failed to write form field: %w", err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, body)
@@ -194,7 +217,7 @@ func (c *HTTPClient) UploadMultipart(ctx context.Context, path string, fieldName
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}
-	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -202,39 +225,7 @@ func (c *HTTPClient) UploadMultipart(ctx context.Context, path string, fieldName
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var apiResp struct {
-		Status  int             `json:"status"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-
-	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if apiResp.Status >= 400 {
-		return nil, &errors.APIError{
-			StatusCode: apiResp.Status,
-			Message:    apiResp.Message,
-		}
-	}
-
-	if result != nil && len(apiResp.Data) > 0 {
-		if err := json.Unmarshal(apiResp.Data, result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
-		}
-	}
-
-	return &Response{
-		StatusCode: resp.StatusCode,
-		Data:       result,
-		Headers:    resp.Header,
-	}, nil
+	return c.parseResponse(resp, result)
 }
 
 func (c *HTTPClient) Download(ctx context.Context, path string, queryParams map[string]string) ([]byte, error) {
@@ -269,54 +260,37 @@ func (c *HTTPClient) Download(ctx context.Context, path string, queryParams map[
 	return io.ReadAll(resp.Body)
 }
 
-func createMultipartBody(fieldName, fileName string, fileContent []byte, formFields map[string]string) (io.Reader, string, error) {
-	var buf bytes.Buffer
-	writer := newMultipartWriter(&buf)
+func ParsePagination(headers map[string][]string) map[string]int {
+	pagination := make(map[string]int)
 
-	writer.WriteField(fieldName, fileName)
-	for k, v := range formFields {
-		writer.WriteField(k, v)
+	if v, ok := headers["X-Pagination-Current-Page"]; ok && len(v) > 0 {
+		if page, err := strconv.Atoi(v[0]); err == nil {
+			pagination["current_page"] = page
+		}
 	}
-	writer.WriteFile("file", fileName, "application/pdf", fileContent)
-
-	if err := writer.Close(); err != nil {
-		return nil, "", fmt.Errorf("failed to close multipart writer: %w", err)
+	if v, ok := headers["X-Pagination-Total-Count"]; ok && len(v) > 0 {
+		if count, err := strconv.Atoi(v[0]); err == nil {
+			pagination["total_count"] = count
+		}
+	}
+	if v, ok := headers["X-Pagination-Page-Count"]; ok && len(v) > 0 {
+		if count, err := strconv.Atoi(v[0]); err == nil {
+			pagination["page_count"] = count
+		}
+	}
+	if v, ok := headers["X-Pagination-Per-Page"]; ok && len(v) > 0 {
+		if perPage, err := strconv.Atoi(v[0]); err == nil {
+			pagination["per_page"] = perPage
+		}
 	}
 
-	return &buf, writer.FormDataContentType(), nil
+	return pagination
 }
 
-type multipartWriter struct {
-	w   *bytes.Buffer
-	pw  *io.PipeWriter
-	err error
+func GetMimeType(filename string) string {
+	mimeType := mime.TypeByExtension(filename)
+	if mimeType == "" {
+		return "application/octet-stream"
+	}
+	return mimeType
 }
-
-func newMultipartWriter(w *bytes.Buffer) *multipartWriter {
-	return &multipartWriter{w: w}
-}
-
-func (m *multipartWriter) WriteField(key, value string) {
-	m.w.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	m.w.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"%s\"\r\n\r\n", key))
-	m.w.WriteString(value + "\r\n")
-}
-
-func (m *multipartWriter) WriteFile(fieldName, fileName, contentType string, data []byte) {
-	m.w.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-	m.w.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n", fieldName, fileName))
-	m.w.WriteString(fmt.Sprintf("Content-Type: %s\r\n\r\n", contentType))
-	m.w.Write(data)
-	m.w.WriteString("\r\n")
-}
-
-func (m *multipartWriter) Close() error {
-	m.w.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
-	return nil
-}
-
-func (m *multipartWriter) FormDataContentType() string {
-	return fmt.Sprintf("multipart/form-data; boundary=%s", boundary)
-}
-
-const boundary = "---------------------------Boundary"

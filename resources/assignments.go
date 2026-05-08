@@ -96,9 +96,10 @@ func (r *AssignmentResource) Sign(ctx context.Context, documentID, assignmentID 
 	return err
 }
 
-func (r *AssignmentResource) Decline(ctx context.Context, documentID, assignmentID, reason string) error {
+func (r *AssignmentResource) Decline(ctx context.Context, documentID, assignmentID, signerAccessCode, reason string) error {
 	body := map[string]string{"reason": reason}
 	req := r.httpClient.NewRequest(http.MethodPut, fmt.Sprintf("/documents/%s/assignments/%s/reject", documentID, assignmentID))
+	req.WithQuery("signer-access-code", signerAccessCode)
 	req.WithBody(body)
 	_, err := req.Execute(ctx, nil)
 	return err

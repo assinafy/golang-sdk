@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/assinafy/assinafy-go/internal"
 	"github.com/assinafy/assinafy-go/models"
@@ -68,7 +69,7 @@ func (r *DocumentResource) List(ctx context.Context, accountID string, params *m
 
 	return &models.PaginatedResult[models.DocumentListItem]{
 		Data:       result,
-		Pagination: extractPagination(resp.Headers),
+		Pagination: extractPaginationMeta(resp.Headers),
 	}, nil
 }
 
@@ -167,19 +168,37 @@ func (r *DocumentResource) GetSigningProgress(ctx context.Context, documentID st
 	return &result, nil
 }
 
-func extractPagination(headers map[string][]string) models.PaginationMeta {
+func (r *DocumentResource) ListStatuses(ctx context.Context) ([]models.DocumentStatusInfo, error) {
+	var result []models.DocumentStatusInfo
+	req := r.httpClient.NewRequest(http.MethodGet, "/documents/statuses")
+	_, err := req.Execute(ctx, &result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func extractPaginationMeta(headers map[string][]string) models.PaginationMeta {
 	meta := models.PaginationMeta{}
 	if v, ok := headers["X-Pagination-Current-Page"]; ok && len(v) > 0 {
-		fmt.Sscanf(v[0], "%d", &meta.CurrentPage)
+		if page, err := strconv.Atoi(v[0]); err == nil {
+			meta.CurrentPage = page
+		}
 	}
 	if v, ok := headers["X-Pagination-Total-Count"]; ok && len(v) > 0 {
-		fmt.Sscanf(v[0], "%d", &meta.TotalCount)
+		if count, err := strconv.Atoi(v[0]); err == nil {
+			meta.TotalCount = count
+		}
 	}
 	if v, ok := headers["X-Pagination-Page-Count"]; ok && len(v) > 0 {
-		fmt.Sscanf(v[0], "%d", &meta.PageCount)
+		if count, err := strconv.Atoi(v[0]); err == nil {
+			meta.PageCount = count
+		}
 	}
 	if v, ok := headers["X-Pagination-Per-Page"]; ok && len(v) > 0 {
-		fmt.Sscanf(v[0], "%d", &meta.PerPage)
+		if perPage, err := strconv.Atoi(v[0]); err == nil {
+			meta.PerPage = perPage
+		}
 	}
 	return meta
 }

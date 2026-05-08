@@ -118,3 +118,8 @@ type VerifyDocumentResult struct {
 	SignerCount  int    `json:"signer_count,omitempty"`
 	CompletedAt  string `json:"completed_at,omitempty"`
 }
+
+type DocumentStatusInfo struct {
+	Code     string `json:"code"`
+	Deletable bool  `json:"deletable"`
+}

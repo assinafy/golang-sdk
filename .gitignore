@@ -1,10 +1,28 @@
-target/
-*.class
-*.jar
-*.war
-.DS_Store
-.env
-.env.local
-*.iml
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# IDE
 .idea/
 .vscode/
+*.iml
+
+# OS
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Build output
+bin/
+dist/
