@@ -2,203 +2,159 @@ package resources
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strconv"
+	"net/url"
 
-	"github.com/assinafy/assinafy-go/internal"
-	"github.com/assinafy/assinafy-go/models"
+	"github.com/assinafy/golang-sdk/internal"
+	"github.com/assinafy/golang-sdk/models"
 )
 
+// DocumentResource exposes the documented `Document` endpoints.
 type DocumentResource struct {
-	httpClient *internal.HTTPClient
-	accountID  string
+	http      *internal.HTTPClient
+	accountID string
 }
 
+// NewDocumentResource constructs a DocumentResource bound to the given
+// HTTPClient and default account ID.
 func NewDocumentResource(httpClient *internal.HTTPClient, accountID string) *DocumentResource {
-	return &DocumentResource{
-		httpClient: httpClient,
-		accountID:  accountID,
-	}
+	return &DocumentResource{http: httpClient, accountID: accountID}
 }
 
-func (r *DocumentResource) Upload(ctx context.Context, accountID string, fileContent []byte, fileName string, metadata map[string]string) (*models.DocumentUploadResponse, error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
+// Upload uploads a file as a new document. POST /accounts/{account_id}/documents.
+func (r *DocumentResource) Upload(ctx context.Context, accountID string, fileContent []byte, fileName string, metadata map[string]string) (*models.Document, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
 
-	formFields := make(map[string]string)
-	formFields["name"] = fileName
+	form := map[string]string{"name": fileName}
 	for k, v := range metadata {
-		formFields[k] = v
+		form[k] = v
 	}
 
-	var result models.DocumentUploadResponse
-	_, err := r.httpClient.UploadMultipart(ctx, fmt.Sprintf("/accounts/%s/documents", accountID), "file", fileName, fileContent, formFields, &result)
+	var doc models.Document
+	path := "/accounts/" + url.PathEscape(accountID) + "/documents"
+	if _, err := r.http.UploadMultipart(ctx, path, "file", fileName, fileContent, form, &doc); err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
+// List returns the workspace documents page.
+// GET /accounts/{account_id}/documents.
+func (r *DocumentResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	var docs []models.Document
+	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/documents")
+	applyListParams(req, params)
+	if params != nil {
+		req.WithQuery("status", params.Status)
+		req.WithQuery("method", params.Method)
+	}
+
+	resp, err := req.Execute(ctx, &docs)
 	if err != nil {
 		return nil, err
 	}
-
-	return &result, nil
+	return paginated(docs, resp), nil
 }
 
-func (r *DocumentResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.DocumentListItem], error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
-	if params == nil {
-		params = &models.ListParams{}
-	}
-	params.SetDefaults()
-
-	var result []models.DocumentListItem
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%s/documents", accountID))
-	req.WithQuery("page", fmt.Sprintf("%d", params.Page))
-	req.WithQuery("per-page", fmt.Sprintf("%d", params.PerPage))
-	if params.Search != "" {
-		req.WithQuery("search", params.Search)
-	}
-	if params.Sort != "" {
-		req.WithQuery("sort", params.Sort)
-	}
-
-	resp, err := req.Execute(ctx, &result)
-	if err != nil {
-		return nil, err
-	}
-
-	return &models.PaginatedResult[models.DocumentListItem]{
-		Data:       result,
-		Pagination: extractPaginationMeta(resp.Headers),
-	}, nil
-}
-
+// Get retrieves a single document. GET /documents/{document_id}.
 func (r *DocumentResource) Get(ctx context.Context, documentID string) (*models.Document, error) {
-	var result models.Document
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/documents/%s", documentID))
-	_, err := req.Execute(ctx, &result)
+	var doc models.Document
+	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID)).Execute(ctx, &doc)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &doc, nil
 }
 
+// Delete removes a document. DELETE /documents/{document_id}.
 func (r *DocumentResource) Delete(ctx context.Context, documentID string) error {
-	req := r.httpClient.NewRequest(http.MethodDelete, fmt.Sprintf("/documents/%s", documentID))
-	_, err := req.Execute(ctx, nil)
+	_, err := r.http.NewRequest(http.MethodDelete, "/documents/"+url.PathEscape(documentID)).Execute(ctx, nil)
 	return err
 }
 
+// Activities lists the audit-trail entries on a document.
+// GET /documents/{document_id}/activities.
 func (r *DocumentResource) Activities(ctx context.Context, documentID string) ([]models.DocumentActivity, error) {
-	var result []models.DocumentActivity
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/documents/%s/activities", documentID))
-	_, err := req.Execute(ctx, &result)
+	var out []models.DocumentActivity
+	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/activities").Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return result, nil
+	return out, nil
 }
 
-func (r *DocumentResource) Download(ctx context.Context, documentID string, artifactName string) ([]byte, error) {
-	return r.httpClient.Download(ctx, fmt.Sprintf("/documents/%s/download/%s", documentID, artifactName), nil)
+// Download fetches a document artifact. GET /documents/{document_id}/download/{artifact}.
+func (r *DocumentResource) Download(ctx context.Context, documentID, artifact string) ([]byte, error) {
+	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/download/"+url.PathEscape(artifact), nil)
 }
 
+// Thumbnail downloads the document thumbnail JPEG.
+// GET /documents/{document_id}/thumbnail.
 func (r *DocumentResource) Thumbnail(ctx context.Context, documentID string) ([]byte, error) {
-	return r.httpClient.Download(ctx, fmt.Sprintf("/documents/%s/thumbnail", documentID), nil)
+	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/thumbnail", nil)
 }
 
+// DownloadPage downloads a single rendered page.
+// GET /documents/{document_id}/pages/{page_id}/download.
 func (r *DocumentResource) DownloadPage(ctx context.Context, documentID, pageID string) ([]byte, error) {
-	return r.httpClient.Download(ctx, fmt.Sprintf("/documents/%s/pages/%s/download", documentID, pageID), nil)
+	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/pages/"+url.PathEscape(pageID)+"/download", nil)
 }
 
+// Verify validates a document by signature hash.
+// GET /documents/{signature_hash}/verify.
 func (r *DocumentResource) Verify(ctx context.Context, signatureHash string) (*models.VerifyDocumentResult, error) {
-	var result models.VerifyDocumentResult
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/documents/%s/verify", signatureHash))
-	_, err := req.Execute(ctx, &result)
+	var out models.VerifyDocumentResult
+	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(signatureHash)+"/verify").Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
+// CreateFromTemplate creates a document from a template.
+// POST /accounts/{account_id}/templates/{template_id}/documents.
 func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner, opts *models.CreateDocumentFromTemplateOptions) (*models.Document, error) {
-	if accountID == "" {
-		accountID = r.accountID
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	body := models.CreateDocumentFromTemplateOptions{Signers: signers}
+	if opts != nil {
+		body = *opts
+		body.Signers = signers
 	}
 
-	if opts == nil {
-		opts = &models.CreateDocumentFromTemplateOptions{}
-	}
-	opts.Signers = signers
-
-	var result models.Document
-	req := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/accounts/%s/templates/%s/documents", accountID, templateID))
-	req.WithBody(opts)
-	_, err := req.Execute(ctx, &result)
+	var out models.Document
+	path := "/accounts/" + url.PathEscape(accountID) + "/templates/" + url.PathEscape(templateID) + "/documents"
+	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) (*models.EstimateCostResult, error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
+// EstimateCostFromTemplate returns the cost estimate of creating a document from a template.
+// POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost.
+func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) (*models.CostEstimate, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
 
-	body := map[string]interface{}{"signers": signers}
-
-	var result models.EstimateCostResult
-	req := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/accounts/%s/templates/%s/documents/estimate-cost", accountID, templateID))
-	req.WithBody(body)
-	_, err := req.Execute(ctx, &result)
+	var out models.CostEstimate
+	body := map[string]any{"signers": signers}
+	path := "/accounts/" + url.PathEscape(accountID) + "/templates/" + url.PathEscape(templateID) + "/documents/estimate-cost"
+	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *DocumentResource) GetSigningProgress(ctx context.Context, documentID string) (*models.SigningProgress, error) {
-	var result models.SigningProgress
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/documents/%s/signing-progress", documentID))
-	_, err := req.Execute(ctx, &result)
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
+// ListStatuses returns the documented status codes.
+// GET /documents/statuses.
 func (r *DocumentResource) ListStatuses(ctx context.Context) ([]models.DocumentStatusInfo, error) {
-	var result []models.DocumentStatusInfo
-	req := r.httpClient.NewRequest(http.MethodGet, "/documents/statuses")
-	_, err := req.Execute(ctx, &result)
+	var out []models.DocumentStatusInfo
+	_, err := r.http.NewRequest(http.MethodGet, "/documents/statuses").Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return result, nil
-}
-
-func extractPaginationMeta(headers map[string][]string) models.PaginationMeta {
-	meta := models.PaginationMeta{}
-	if v, ok := headers["X-Pagination-Current-Page"]; ok && len(v) > 0 {
-		if page, err := strconv.Atoi(v[0]); err == nil {
-			meta.CurrentPage = page
-		}
-	}
-	if v, ok := headers["X-Pagination-Total-Count"]; ok && len(v) > 0 {
-		if count, err := strconv.Atoi(v[0]); err == nil {
-			meta.TotalCount = count
-		}
-	}
-	if v, ok := headers["X-Pagination-Page-Count"]; ok && len(v) > 0 {
-		if count, err := strconv.Atoi(v[0]); err == nil {
-			meta.PageCount = count
-		}
-	}
-	if v, ok := headers["X-Pagination-Per-Page"]; ok && len(v) > 0 {
-		if perPage, err := strconv.Atoi(v[0]); err == nil {
-			meta.PerPage = perPage
-		}
-	}
-	return meta
+	return out, nil
 }

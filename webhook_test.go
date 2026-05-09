@@ -5,104 +5,63 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"testing"
-
-	"github.com/assinafy/assinafy-go/models"
 )
 
-func TestWebhookVerifier(t *testing.T) {
-	secret := "test-webhook-secret"
-	verifier := NewWebhookVerifier(secret)
+func sign(t *testing.T, secret string, payload []byte) string {
+	t.Helper()
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestWebhookVerifierVerify(t *testing.T) {
+	secret := "test-webhook-secret" // #nosec G101 -- fixture, not a real credential
+	v := NewWebhookVerifier(secret)
+	payload := []byte(`{"event":"document_ready","payload":{}}`)
 
 	t.Run("valid signature", func(t *testing.T) {
-		payload := []byte(`{"event":"document_ready","data":{}}`)
-
-		mac := hmac.New(sha256.New, []byte(secret))
-		mac.Write(payload)
-		signature := hex.EncodeToString(mac.Sum(nil))
-
-		if !verifier.Verify(payload, signature) {
-			t.Error("expected signature to be valid")
+		if !v.Verify(payload, sign(t, secret, payload)) {
+			t.Error("expected valid signature")
 		}
 	})
 
 	t.Run("invalid signature", func(t *testing.T) {
-		payload := []byte(`{"event":"document_ready","data":{}}`)
-		wrongSignature := "invalid-signature"
-
-		if verifier.Verify(payload, wrongSignature) {
-			t.Error("expected signature to be invalid")
+		if v.Verify(payload, "deadbeef") {
+			t.Error("expected invalid signature")
 		}
 	})
 
 	t.Run("tampered payload", func(t *testing.T) {
-		payload := []byte(`{"event":"document_ready","data":{}}`)
-		mac := hmac.New(sha256.New, []byte(secret))
-		mac.Write(payload)
-		signature := hex.EncodeToString(mac.Sum(nil))
-
-		tamperedPayload := []byte(`{"event":"document_deleted","data":{}}`)
-		if verifier.Verify(tamperedPayload, signature) {
-			t.Error("expected tampered payload to fail verification")
+		signature := sign(t, secret, payload)
+		if v.Verify([]byte(`{"event":"document_deleted"}`), signature) {
+			t.Error("expected verification to fail for tampered payload")
 		}
 	})
 }
 
-func TestWebhookVerifier_ExtractEvent(t *testing.T) {
-	verifier := NewWebhookVerifier("secret")
+func TestWebhookVerifierExtractEvent(t *testing.T) {
+	v := NewWebhookVerifier("secret")
 
 	t.Run("valid payload", func(t *testing.T) {
-		payload := []byte(`{"event":"document_ready","timestamp":"2024-01-01T00:00:00Z","data":{"document_id":"123"}}`)
-		event, err := verifier.ExtractEvent(payload)
+		payload := []byte(`{"id":1,"event":"document_ready","created_at":1705316400,"payload":{"document_id":"123"},"account_id":"acc_123"}`)
+		event, err := v.ExtractEvent(payload)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if event.Event != "document_ready" {
-			t.Errorf("expected 'document_ready' but got '%s'", event.Event)
+			t.Errorf("got event %q, want document_ready", event.Event)
 		}
-		if event.Timestamp != "2024-01-01T00:00:00Z" {
-			t.Errorf("unexpected timestamp: %s", event.Timestamp)
+		if event.CreatedAt.String() != "1705316400" {
+			t.Errorf("got created_at %q, want 1705316400", event.CreatedAt)
 		}
-	})
-
-	t.Run("invalid payload", func(t *testing.T) {
-		payload := []byte(`invalid json`)
-		_, err := verifier.ExtractEvent(payload)
-		if err == nil {
-			t.Error("expected error for invalid JSON")
+		if event.Payload["document_id"] != "123" {
+			t.Errorf("got payload %v, want document_id=123", event.Payload)
 		}
 	})
-}
 
-func TestWebhookVerifier_GetEventType(t *testing.T) {
-	verifier := NewWebhookVerifier("secret")
-
-	event := &models.WebhookPayload{
-		Event: "signer_signed_document",
-	}
-
-	if verifier.GetEventType(event) != "signer_signed_document" {
-		t.Errorf("unexpected event type: %s", verifier.GetEventType(event))
-	}
-}
-
-func TestWebhookVerifier_GetEventData(t *testing.T) {
-	verifier := NewWebhookVerifier("secret")
-
-	expectedData := map[string]interface{}{
-		"document_id": "123",
-		"signer_id":   "456",
-	}
-
-	event := &models.WebhookPayload{
-		Event: "document_ready",
-		Data:  expectedData,
-	}
-
-	data := verifier.GetEventData(event)
-	if data["document_id"] != "123" {
-		t.Errorf("unexpected data: %v", data)
-	}
-	if data["signer_id"] != "456" {
-		t.Errorf("unexpected data: %v", data)
-	}
+	t.Run("invalid JSON", func(t *testing.T) {
+		if _, err := v.ExtractEvent([]byte("not json")); err == nil {
+			t.Error("expected error")
+		}
+	})
 }

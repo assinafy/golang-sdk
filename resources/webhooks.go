@@ -2,120 +2,133 @@ package resources
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
-	"github.com/assinafy/assinafy-go/internal"
-	"github.com/assinafy/assinafy-go/models"
+	"github.com/assinafy/golang-sdk/internal"
+	"github.com/assinafy/golang-sdk/models"
 )
 
+// WebhookResource exposes the documented `Webhooks` endpoints.
 type WebhookResource struct {
-	httpClient *internal.HTTPClient
-	accountID  string
+	http      *internal.HTTPClient
+	accountID string
 }
 
+// NewWebhookResource constructs a WebhookResource.
 func NewWebhookResource(httpClient *internal.HTTPClient, accountID string) *WebhookResource {
-	return &WebhookResource{
-		httpClient: httpClient,
-		accountID:  accountID,
-	}
+	return &WebhookResource{http: httpClient, accountID: accountID}
 }
 
-func (r *WebhookResource) Register(ctx context.Context, accountID string, req *models.RegisterWebhookRequest) (*models.WebhookSubscription, error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
+// UpdateSubscription registers or updates the workspace webhook subscription.
+// PUT /accounts/{account_id}/webhooks/subscriptions.
+func (r *WebhookResource) UpdateSubscription(ctx context.Context, accountID string, body *models.UpdateWebhookSubscriptionRequest) (*models.WebhookSubscription, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
 
-	var result models.WebhookSubscription
-	httpReq := r.httpClient.NewRequest(http.MethodPut, fmt.Sprintf("/accounts/%s/webhooks/subscriptions", accountID))
-	httpReq.WithBody(req)
-	_, err := httpReq.Execute(ctx, &result)
+	var out models.WebhookSubscription
+	path := "/accounts/" + url.PathEscape(accountID) + "/webhooks/subscriptions"
+	_, err := r.http.NewRequest(http.MethodPut, path).WithBody(body).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *WebhookResource) Get(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
+// GetSubscription retrieves the current webhook subscription.
+// GET /accounts/{account_id}/webhooks/subscriptions.
+func (r *WebhookResource) GetSubscription(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
 
-	var result models.WebhookSubscription
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%s/webhooks/subscriptions", accountID))
-	_, err := req.Execute(ctx, &result)
+	var out models.WebhookSubscription
+	path := "/accounts/" + url.PathEscape(accountID) + "/webhooks/subscriptions"
+	_, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *WebhookResource) Update(ctx context.Context, accountID string, req *models.RegisterWebhookRequest) (*models.WebhookSubscription, error) {
-	return r.Register(ctx, accountID, req)
-}
+// DeleteSubscription removes the workspace webhook subscription.
+// DELETE /accounts/{account_id}/webhooks/subscriptions.
+func (r *WebhookResource) DeleteSubscription(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
 
-func (r *WebhookResource) Inactivate(ctx context.Context, accountID string) error {
-	if accountID == "" {
-		accountID = r.accountID
+	var out models.WebhookSubscription
+	path := "/accounts/" + url.PathEscape(accountID) + "/webhooks/subscriptions"
+	_, err := r.http.NewRequest(http.MethodDelete, path).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
 	}
-
-	req := r.httpClient.NewRequest(http.MethodPut, fmt.Sprintf("/accounts/%s/webhooks/inactivate", accountID))
-	_, err := req.Execute(ctx, nil)
-	return err
+	return &out, nil
 }
 
-func (r *WebhookResource) Delete(ctx context.Context, accountID string) error {
-	if accountID == "" {
-		accountID = r.accountID
+// Inactivate disables the workspace webhook subscription.
+// PUT /accounts/{account_id}/webhooks/inactivate.
+func (r *WebhookResource) Inactivate(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	var out models.WebhookSubscription
+	path := "/accounts/" + url.PathEscape(accountID) + "/webhooks/inactivate"
+	_, err := r.http.NewRequest(http.MethodPut, path).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
 	}
-
-	req := r.httpClient.NewRequest(http.MethodDelete, fmt.Sprintf("/accounts/%s/webhooks/subscriptions", accountID))
-	_, err := req.Execute(ctx, nil)
-	return err
+	return &out, nil
 }
 
+// ListEventTypes returns the available webhook event types.
+// GET /webhooks/event-types.
 func (r *WebhookResource) ListEventTypes(ctx context.Context) ([]models.WebhookEventType, error) {
-	var result []models.WebhookEventType
-	req := r.httpClient.NewRequest(http.MethodGet, "/webhooks/event-types")
-	_, err := req.Execute(ctx, &result)
+	var out []models.WebhookEventType
+	_, err := r.http.NewRequest(http.MethodGet, "/webhooks/event-types").Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return result, nil
+	return out, nil
 }
 
+// ListDispatches returns webhook delivery attempts for the account.
+// GET /accounts/{account_id}/webhooks.
 func (r *WebhookResource) ListDispatches(ctx context.Context, accountID string, params *models.WebhookDispatchListParams) (*models.PaginatedResult[models.WebhookDispatch], error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
+	accountID = resolveAccountID(accountID, r.accountID)
 	if params == nil {
 		params = &models.WebhookDispatchListParams{}
 	}
+	params.SetDefaults()
 
-	var result []models.WebhookDispatch
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%s/webhooks", accountID))
-	req.WithQuery("page", fmt.Sprintf("%d", params.Page))
-	req.WithQuery("per-page", fmt.Sprintf("%d", params.PerPage))
+	var out []models.WebhookDispatch
+	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/webhooks").
+		WithQuery("page", strconv.Itoa(params.Page)).
+		WithQuery("per-page", strconv.Itoa(params.PerPage)).
+		WithQuery("event", params.Event)
 	if params.Delivered != nil {
-		req.WithQuery("delivered", fmt.Sprintf("%t", *params.Delivered))
+		req.WithQuery("delivered", strconv.FormatBool(*params.Delivered))
 	}
-	if params.Event != "" {
-		req.WithQuery("event", params.Event)
+	if params.From != 0 {
+		req.WithQuery("from", strconv.FormatInt(params.From, 10))
+	}
+	if params.To != 0 {
+		req.WithQuery("to", strconv.FormatInt(params.To, 10))
 	}
 
-	resp, err := req.Execute(ctx, &result)
+	resp, err := req.Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-
-	return &models.PaginatedResult[models.WebhookDispatch]{
-		Data:       result,
-		Pagination: extractPaginationMeta(resp.Headers),
-	}, nil
+	return paginated(out, resp), nil
 }
 
-func (r *WebhookResource) RetryDispatch(ctx context.Context, accountID, dispatchID string) error {
-	req := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/accounts/%s/webhooks/%s/retry", accountID, dispatchID))
-	_, err := req.Execute(ctx, nil)
-	return err
+// RetryDispatch retries a failed webhook dispatch.
+// POST /accounts/{account_id}/webhooks/{dispatch_id}/retry.
+func (r *WebhookResource) RetryDispatch(ctx context.Context, accountID, dispatchID string) (*models.WebhookDispatch, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	var out models.WebhookDispatch
+	path := "/accounts/" + url.PathEscape(accountID) + "/webhooks/" + url.PathEscape(dispatchID) + "/retry"
+	_, err := r.http.NewRequest(http.MethodPost, path).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

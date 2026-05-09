@@ -1,3 +1,5 @@
+// Package internal contains the low-level HTTP transport used by the SDK
+// resources. It is not part of the public API and may change without notice.
 package internal
 
 import (
@@ -6,291 +8,310 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/assinafy/assinafy-go/errors"
+	"github.com/assinafy/golang-sdk/errors"
 )
 
+const userAgent = "assinafy-go-sdk/1.0"
+
+// HTTPClient is a thin JSON/multipart client around net/http.
 type HTTPClient struct {
-	baseURL    string
-	apiKey     string
-	token      string
-	httpClient *http.Client
-	headers    map[string]string
+	baseURL string
+	headers http.Header
+	httpc   *http.Client
 }
 
+// NewHTTPClient builds an HTTPClient with the given credentials and timeout.
+// If apiKey is set it takes precedence over token.
 func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPClient {
-	headers := map[string]string{
-		"Content-Type": "application/json",
-		"Accept":       "application/json",
-		"User-Agent":   "assinafy-go-sdk",
-	}
-
-	if apiKey != "" {
-		headers["X-Api-Key"] = apiKey
-	} else if token != "" {
-		headers["Authorization"] = "Bearer " + token
+	headers := http.Header{}
+	headers.Set("Accept", "application/json")
+	headers.Set("User-Agent", userAgent)
+	switch {
+	case apiKey != "":
+		headers.Set("X-Api-Key", apiKey)
+	case token != "":
+		headers.Set("Authorization", "Bearer "+token)
 	}
 
 	return &HTTPClient{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		apiKey:  apiKey,
-		token:   token,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		baseURL: strings.TrimRight(baseURL, "/"),
 		headers: headers,
+		httpc:   &http.Client{Timeout: timeout},
 	}
 }
 
+// Request is a fluent builder for outgoing API requests.
+type Request struct {
+	client  *HTTPClient
+	method  string
+	path    string
+	query   url.Values
+	headers http.Header
+	body    any
+	rawBody []byte
+}
+
+// NewRequest creates a Request bound to this client. Path must start with "/".
 func (c *HTTPClient) NewRequest(method, path string) *Request {
 	return &Request{
-		client:      c,
-		method:      method,
-		path:        path,
-		queryParams: make(map[string]string),
-		headers:     make(map[string]string),
+		client:  c,
+		method:  method,
+		path:    path,
+		query:   url.Values{},
+		headers: http.Header{},
 	}
 }
 
-type Request struct {
-	client      *HTTPClient
-	method      string
-	path        string
-	queryParams map[string]string
-	headers     map[string]string
-	body        interface{}
-}
-
+// WithQuery sets a single query parameter, dropping it if value is empty.
 func (r *Request) WithQuery(key, value string) *Request {
-	r.queryParams[key] = value
+	if value != "" {
+		r.query.Set(key, value)
+	}
 	return r
 }
 
+// WithHeader sets a request-specific header (overrides client defaults).
 func (r *Request) WithHeader(key, value string) *Request {
-	r.headers[key] = value
+	r.headers.Set(key, value)
 	return r
 }
 
-func (r *Request) WithBody(body interface{}) *Request {
+// WithBody sets a JSON-encoded body.
+func (r *Request) WithBody(body any) *Request {
 	r.body = body
+	r.rawBody = nil
 	return r
 }
 
-func (r *Request) Execute(ctx context.Context, responseStruct interface{}) (*Response, error) {
-	return r.client.Do(ctx, r, responseStruct)
+// WithRawBody sets a raw byte body. Caller must also call WithHeader for Content-Type.
+func (r *Request) WithRawBody(body []byte) *Request {
+	r.rawBody = body
+	r.body = nil
+	return r
 }
 
+// Response carries the parsed result and surrounding HTTP metadata.
 type Response struct {
 	StatusCode int
-	Data       interface{}
 	Headers    http.Header
 }
 
-func (c *HTTPClient) Do(ctx context.Context, req *Request, result interface{}) (*Response, error) {
-	urlStr := c.baseURL + req.path
-	if len(req.queryParams) > 0 {
-		query := url.Values{}
-		for k, v := range req.queryParams {
-			if v != "" {
-				query.Set(k, v)
-			}
-		}
-		if len(query) > 0 {
-			urlStr += "?" + query.Encode()
-		}
+// Execute runs the request and decodes the response data envelope into result.
+func (r *Request) Execute(ctx context.Context, result any) (*Response, error) {
+	return r.client.do(ctx, r, result)
+}
+
+func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response, error) {
+	target := c.baseURL + r.path
+	if len(r.query) > 0 {
+		target += "?" + r.query.Encode()
 	}
 
-	var bodyReader io.Reader
-	if req.body != nil {
-		data, err := json.Marshal(req.body)
+	var body io.Reader
+	contentType := ""
+	switch {
+	case r.rawBody != nil:
+		body = bytes.NewReader(r.rawBody)
+	case r.body != nil:
+		buf, err := json.Marshal(r.body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			return nil, fmt.Errorf("assinafy: marshal request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(data)
+		body = bytes.NewReader(buf)
+		contentType = "application/json"
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, req.method, urlStr, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, r.method, target, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("assinafy: build request: %w", err)
 	}
 
-	for k, v := range c.headers {
-		httpReq.Header.Set(k, v)
+	for k, vs := range c.headers {
+		req.Header[k] = append(req.Header[k], vs...)
 	}
-	for k, v := range req.headers {
-		httpReq.Header.Set(k, v)
+	if contentType != "" && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for k, vs := range r.headers {
+		req.Header[k] = vs
 	}
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, &errors.NetworkError{OriginalError: err}
+		return nil, &errors.NetworkError{Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	return c.parseResponse(resp, result)
+	return parseResponse(resp, result)
 }
 
-func (c *HTTPClient) parseResponse(resp *http.Response, result interface{}) (*Response, error) {
-	respBody, err := io.ReadAll(resp.Body)
+// UploadMultipart sends a multipart/form-data POST with a single file part.
+func (c *HTTPClient) UploadMultipart(ctx context.Context, path, fieldName, fileName string, fileContent []byte, formFields map[string]string, result any) (*Response, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	part, err := w.CreateFormFile(fieldName, fileName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var apiResp struct {
-		Status  int             `json:"status"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-
-	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		if resp.StatusCode >= 400 {
-			return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(respBody))
-		}
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if apiResp.Status >= 400 {
-		apiError := &errors.APIError{
-			StatusCode: apiResp.Status,
-			Message:    apiResp.Message,
-		}
-		if len(apiResp.Data) > 0 && !bytes.HasPrefix(apiResp.Data, []byte("[]")) {
-			var data interface{}
-			if err := json.Unmarshal(apiResp.Data, &data); err == nil {
-				apiError.Data = data
-			}
-		}
-		return nil, apiError
-	}
-
-	if result != nil && len(apiResp.Data) > 0 {
-		if err := json.Unmarshal(apiResp.Data, result); err != nil {
-			if !bytes.HasPrefix(apiResp.Data, []byte("[]")) {
-				return nil, fmt.Errorf("failed to unmarshal response data: %w", err)
-			}
-		}
-	}
-
-	return &Response{
-		StatusCode: resp.StatusCode,
-		Data:       result,
-		Headers:    resp.Header,
-	}, nil
-}
-
-func (c *HTTPClient) UploadMultipart(ctx context.Context, path string, fieldName, fileName string, fileContent []byte, formFields map[string]string, result interface{}) (*Response, error) {
-	urlStr := c.baseURL + path
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	part, err := writer.CreateFormFile(fieldName, fileName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create form file: %w", err)
+		return nil, fmt.Errorf("assinafy: create form file: %w", err)
 	}
 	if _, err := part.Write(fileContent); err != nil {
-		return nil, fmt.Errorf("failed to write file content: %w", err)
+		return nil, fmt.Errorf("assinafy: write form file: %w", err)
 	}
-
 	for k, v := range formFields {
-		if err := writer.WriteField(k, v); err != nil {
-			return nil, fmt.Errorf("failed to write form field: %w", err)
+		if err := w.WriteField(k, v); err != nil {
+			return nil, fmt.Errorf("assinafy: write form field %q: %w", k, err)
 		}
 	}
-
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("assinafy: close multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &buf)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("assinafy: build request: %w", err)
 	}
-
-	for k, v := range c.headers {
-		req.Header.Set(k, v)
+	for k, vs := range c.headers {
+		req.Header[k] = append(req.Header[k], vs...)
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, &errors.NetworkError{OriginalError: err}
+		return nil, &errors.NetworkError{Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	return c.parseResponse(resp, result)
+	return parseResponse(resp, result)
 }
 
-func (c *HTTPClient) Download(ctx context.Context, path string, queryParams map[string]string) ([]byte, error) {
-	urlStr := c.baseURL + path
-	if len(queryParams) > 0 {
-		query := url.Values{}
-		for k, v := range queryParams {
-			query.Set(k, v)
+// Download fetches a path as raw bytes (used for artifact/page/thumbnail downloads).
+func (c *HTTPClient) Download(ctx context.Context, path string, query map[string]string) ([]byte, error) {
+	target := c.baseURL + path
+	if len(query) > 0 {
+		q := url.Values{}
+		for k, v := range query {
+			if v != "" {
+				q.Set(k, v)
+			}
 		}
-		urlStr += "?" + query.Encode()
+		if len(q) > 0 {
+			target += "?" + q.Encode()
+		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("assinafy: build request: %w", err)
+	}
+	for k, vs := range c.headers {
+		req.Header[k] = append(req.Header[k], vs...)
 	}
 
-	for k, v := range c.headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, &errors.NetworkError{OriginalError: err}
+		return nil, &errors.NetworkError{Err: err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("download failed with status %d", resp.StatusCode)
+		_, parseErr := parseResponse(resp, nil)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		return nil, &errors.APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
 	}
 
 	return io.ReadAll(resp.Body)
 }
 
-func ParsePagination(headers map[string][]string) map[string]int {
-	pagination := make(map[string]int)
-
-	if v, ok := headers["X-Pagination-Current-Page"]; ok && len(v) > 0 {
-		if page, err := strconv.Atoi(v[0]); err == nil {
-			pagination["current_page"] = page
-		}
-	}
-	if v, ok := headers["X-Pagination-Total-Count"]; ok && len(v) > 0 {
-		if count, err := strconv.Atoi(v[0]); err == nil {
-			pagination["total_count"] = count
-		}
-	}
-	if v, ok := headers["X-Pagination-Page-Count"]; ok && len(v) > 0 {
-		if count, err := strconv.Atoi(v[0]); err == nil {
-			pagination["page_count"] = count
-		}
-	}
-	if v, ok := headers["X-Pagination-Per-Page"]; ok && len(v) > 0 {
-		if perPage, err := strconv.Atoi(v[0]); err == nil {
-			pagination["per_page"] = perPage
-		}
-	}
-
-	return pagination
+// envelope mirrors the shared response wrapper documented at
+// https://api.assinafy.com.br/v1/docs.
+type envelope struct {
+	Status  json.RawMessage `json:"status"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
 }
 
-func GetMimeType(filename string) string {
-	mimeType := mime.TypeByExtension(filename)
-	if mimeType == "" {
-		return "application/octet-stream"
+func parseResponse(resp *http.Response, result any) (*Response, error) {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("assinafy: read response: %w", err)
 	}
-	return mimeType
+
+	out := &Response{StatusCode: resp.StatusCode, Headers: resp.Header}
+	body = bytes.TrimSpace(body)
+
+	if len(body) == 0 {
+		if resp.StatusCode >= 400 {
+			return nil, &errors.APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
+		}
+		return out, nil
+	}
+
+	var env envelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		if resp.StatusCode >= 400 {
+			return nil, &errors.APIError{StatusCode: resp.StatusCode, Message: string(body)}
+		}
+		if result == nil {
+			return nil, fmt.Errorf("assinafy: parse response: %w", err)
+		}
+		if err := json.Unmarshal(body, result); err != nil {
+			return nil, fmt.Errorf("assinafy: unmarshal response: %w", err)
+		}
+		return out, nil
+	}
+
+	envStatus := resp.StatusCode
+	hasEnvelopeStatus := false
+	if len(env.Status) > 0 {
+		var s int
+		if err := json.Unmarshal(env.Status, &s); err == nil {
+			envStatus = s
+			hasEnvelopeStatus = true
+		}
+	}
+	isEnvelope := hasEnvelopeStatus && (len(env.Data) > 0 || env.Message != "")
+
+	if resp.StatusCode >= 400 || (isEnvelope && envStatus >= 400) {
+		apiErr := &errors.APIError{StatusCode: envStatus, Message: env.Message}
+		if apiErr.Message == "" {
+			apiErr.Message = http.StatusText(envStatus)
+		}
+		if hasDataPayload(env.Data) {
+			var data any
+			if json.Unmarshal(env.Data, &data) == nil {
+				apiErr.Data = data
+			}
+		}
+		return nil, apiErr
+	}
+
+	if result == nil {
+		return out, nil
+	}
+
+	switch {
+	case isEnvelope && hasDataPayload(env.Data):
+		if err := json.Unmarshal(env.Data, result); err != nil {
+			return nil, fmt.Errorf("assinafy: unmarshal response data: %w", err)
+		}
+	case !isEnvelope:
+		if err := json.Unmarshal(body, result); err != nil {
+			return nil, fmt.Errorf("assinafy: unmarshal response: %w", err)
+		}
+	}
+
+	return out, nil
+}
+
+func hasDataPayload(data json.RawMessage) bool {
+	data = bytes.TrimSpace(data)
+	return len(data) > 0 && !bytes.Equal(data, []byte("null"))
 }

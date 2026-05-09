@@ -1,3 +1,3 @@
-module github.com/assinafy/assinafy-go
+module github.com/assinafy/golang-sdk
 
 go 1.26

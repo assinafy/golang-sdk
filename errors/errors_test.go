@@ -3,25 +3,27 @@ package errors
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
 func TestAPIError(t *testing.T) {
-	err := &APIError{
-		StatusCode: 400,
-		Message:    "bad request",
+	err := &APIError{StatusCode: 400, Message: "bad request"}
+	if !strings.Contains(err.Error(), "bad request") {
+		t.Errorf("expected message to contain 'bad request', got %q", err.Error())
 	}
 
-	if err.Error() != "bad request" {
-		t.Errorf("expected 'bad request' but got '%s'", err.Error())
+	empty := &APIError{StatusCode: 500}
+	if !strings.Contains(empty.Error(), "500") {
+		t.Errorf("expected status code in error, got %q", empty.Error())
 	}
 }
 
 func TestValidationError(t *testing.T) {
 	t.Run("empty errors", func(t *testing.T) {
 		err := &ValidationError{}
-		if err.Error() != "validation error" {
-			t.Errorf("expected 'validation error' but got '%s'", err.Error())
+		if !strings.Contains(err.Error(), "validation error") {
+			t.Errorf("unexpected message: %q", err.Error())
 		}
 	})
 
@@ -32,104 +34,67 @@ func TestValidationError(t *testing.T) {
 				{Field: "name", Message: "too short"},
 			},
 		}
-		expected := "email: required; name: too short; "
-		if err.Error() != expected {
-			t.Errorf("expected '%s' but got '%s'", expected, err.Error())
+		got := err.Error()
+		if !strings.Contains(got, "email: required") || !strings.Contains(got, "name: too short") {
+			t.Errorf("unexpected message: %q", got)
 		}
 	})
 }
 
 func TestNetworkError(t *testing.T) {
-	origErr := errors.New("connection refused")
-	err := &NetworkError{OriginalError: origErr}
-
-	if err.Error() != "network error: connection refused" {
-		t.Errorf("unexpected error message: %s", err.Error())
+	orig := errors.New("connection refused")
+	err := &NetworkError{Err: orig}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("unexpected message: %q", err.Error())
+	}
+	if !errors.Is(err, orig) {
+		t.Error("NetworkError should unwrap to the original error")
 	}
 
-	t.Run("nil original error", func(t *testing.T) {
-		nilErr := &NetworkError{}
-		if nilErr.Error() != "network error" {
-			t.Errorf("unexpected error message: %s", nilErr.Error())
-		}
-	})
+	nilErr := &NetworkError{}
+	if !strings.Contains(nilErr.Error(), "network error") {
+		t.Errorf("unexpected message: %q", nilErr.Error())
+	}
 }
 
 func TestIsStatusCode(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		code     int
-		expected bool
+	cases := []struct {
+		name string
+		err  error
+		code int
+		want bool
 	}{
-		{
-			name:     "matches 400",
-			err:      &APIError{StatusCode: 400},
-			code:     400,
-			expected: true,
-		},
-		{
-			name:     "does not match 400",
-			err:      &APIError{StatusCode: 404},
-			code:     400,
-			expected: false,
-		},
-		{
-			name:     "non-API error",
-			err:      errors.New("other"),
-			code:     400,
-			expected: false,
-		},
+		{"matches", &APIError{StatusCode: 400}, 400, true},
+		{"mismatch", &APIError{StatusCode: 404}, 400, false},
+		{"non-api", errors.New("other"), 400, false},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsStatusCode(tt.err, tt.code)
-			if result != tt.expected {
-				t.Errorf("expected %v but got %v", tt.expected, result)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsStatusCode(tc.err, tc.code); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
 func TestIsRetryable(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
+	cases := []struct {
+		name string
+		err  error
+		want bool
 	}{
-		{
-			name:     "429 Too Many Requests",
-			err:      &APIError{StatusCode: http.StatusTooManyRequests},
-			expected: true,
-		},
-		{
-			name:     "500 Internal Error",
-			err:      &APIError{StatusCode: http.StatusInternalServerError},
-			expected: true,
-		},
-		{
-			name:     "400 Bad Request",
-			err:      &APIError{StatusCode: http.StatusBadRequest},
-			expected: false,
-		},
-		{
-			name:     "404 Not Found",
-			err:      &APIError{StatusCode: http.StatusNotFound},
-			expected: false,
-		},
-		{
-			name:     "non-API error",
-			err:      errors.New("other"),
-			expected: false,
-		},
+		{"429", &APIError{StatusCode: http.StatusTooManyRequests}, true},
+		{"500", &APIError{StatusCode: http.StatusInternalServerError}, true},
+		{"503", &APIError{StatusCode: http.StatusServiceUnavailable}, true},
+		{"400", &APIError{StatusCode: http.StatusBadRequest}, false},
+		{"404", &APIError{StatusCode: http.StatusNotFound}, false},
+		{"network", &NetworkError{Err: errors.New("eof")}, true},
+		{"other", errors.New("other"), false},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsRetryable(tt.err)
-			if result != tt.expected {
-				t.Errorf("expected %v but got %v", tt.expected, result)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsRetryable(tc.err); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
 	}

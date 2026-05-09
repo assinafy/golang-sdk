@@ -2,126 +2,140 @@ package resources
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"net/url"
 
-	"github.com/assinafy/assinafy-go/internal"
-	"github.com/assinafy/assinafy-go/models"
+	"github.com/assinafy/golang-sdk/internal"
+	"github.com/assinafy/golang-sdk/models"
 )
 
+// AssignmentResource exposes the documented `Assignment` endpoints.
 type AssignmentResource struct {
-	httpClient *internal.HTTPClient
-	accountID  string
+	http *internal.HTTPClient
 }
 
-func NewAssignmentResource(httpClient *internal.HTTPClient, accountID string) *AssignmentResource {
-	return &AssignmentResource{
-		httpClient: httpClient,
-		accountID:  accountID,
-	}
+// NewAssignmentResource constructs an AssignmentResource.
+func NewAssignmentResource(httpClient *internal.HTTPClient) *AssignmentResource {
+	return &AssignmentResource{http: httpClient}
 }
 
-func (r *AssignmentResource) Create(ctx context.Context, documentID string, req *models.CreateAssignmentRequest) (*models.Assignment, error) {
-	var result models.Assignment
-	httpReq := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/documents/%s/assignments", documentID))
-	httpReq.WithBody(req)
-	_, err := httpReq.Execute(ctx, &result)
+// Create creates an assignment (virtual or collect).
+// POST /documents/{document_id}/assignments.
+func (r *AssignmentResource) Create(ctx context.Context, documentID string, body *models.CreateAssignmentRequest) (*models.Assignment, error) {
+	var out models.Assignment
+	path := "/documents/" + url.PathEscape(documentID) + "/assignments"
+	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *AssignmentResource) EstimateCost(ctx context.Context, documentID string, req *models.CreateAssignmentRequest) (*models.EstimateCostResult, error) {
-	var result models.EstimateCostResult
-	httpReq := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/documents/%s/assignments/estimate-cost", documentID))
-	httpReq.WithBody(req)
-	_, err := httpReq.Execute(ctx, &result)
+// EstimateCost returns the cost estimate for an assignment.
+// POST /documents/{document_id}/assignments/estimate-cost.
+func (r *AssignmentResource) EstimateCost(ctx context.Context, documentID string, body *models.CreateAssignmentRequest) (*models.CostEstimate, error) {
+	var out models.CostEstimate
+	path := "/documents/" + url.PathEscape(documentID) + "/assignments/estimate-cost"
+	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *AssignmentResource) ResendNotification(ctx context.Context, documentID, assignmentID, signerID string) error {
-	req := r.httpClient.NewRequest(http.MethodPut, fmt.Sprintf("/documents/%s/assignments/%s/signers/%s/resend", documentID, assignmentID, signerID))
-	_, err := req.Execute(ctx, nil)
-	return err
-}
-
-func (r *AssignmentResource) EstimateResendCost(ctx context.Context, documentID, assignmentID, signerID string) (*models.EstimateCostResult, error) {
-	var result models.EstimateCostResult
-	req := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/documents/%s/assignments/%s/signers/%s/estimate-resend-cost", documentID, assignmentID, signerID))
-	_, err := req.Execute(ctx, &result)
+// ResendNotification re-sends the signing invitation for one signer.
+// PUT /documents/{document_id}/assignments/{assignment_id}/signers/{signer_id}/resend.
+func (r *AssignmentResource) ResendNotification(ctx context.Context, documentID, assignmentID, signerID string) (*models.ResendNotificationResult, error) {
+	var out models.ResendNotificationResult
+	path := "/documents/" + url.PathEscape(documentID) +
+		"/assignments/" + url.PathEscape(assignmentID) +
+		"/signers/" + url.PathEscape(signerID) +
+		"/resend"
+	_, err := r.http.NewRequest(http.MethodPut, path).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *AssignmentResource) ResetExpiration(ctx context.Context, documentID, assignmentID, expiresAt string) error {
-	body := map[string]string{"expires_at": expiresAt}
-	req := r.httpClient.NewRequest(http.MethodPut, fmt.Sprintf("/documents/%s/assignments/%s/reset-expiration", documentID, assignmentID))
-	req.WithBody(body)
-	_, err := req.Execute(ctx, nil)
-	return err
-}
-
-func (r *AssignmentResource) GetSummary(ctx context.Context, documentID, assignmentID string) (*models.AssignmentSummary, error) {
-	var result models.AssignmentSummary
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/documents/%s/assignments/%s/summary", documentID, assignmentID))
-	_, err := req.Execute(ctx, &result)
+// EstimateResendCost returns the cost of resending one signer notification.
+// POST /documents/{document_id}/assignments/{assignment_id}/signers/{signer_id}/estimate-resend-cost.
+func (r *AssignmentResource) EstimateResendCost(ctx context.Context, documentID, assignmentID, signerID string) (*models.CostEstimate, error) {
+	var out models.CostEstimate
+	path := "/documents/" + url.PathEscape(documentID) +
+		"/assignments/" + url.PathEscape(assignmentID) +
+		"/signers/" + url.PathEscape(signerID) +
+		"/estimate-resend-cost"
+	_, err := r.http.NewRequest(http.MethodPost, path).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }
 
-func (r *AssignmentResource) Cancel(ctx context.Context, documentID, assignmentID, reason string) error {
-	body := map[string]string{"reason": reason}
-	req := r.httpClient.NewRequest(http.MethodDelete, fmt.Sprintf("/documents/%s/assignments/%s", documentID, assignmentID))
-	req.WithBody(body)
-	_, err := req.Execute(ctx, nil)
-	return err
-}
-
-func (r *AssignmentResource) Sign(ctx context.Context, documentID, assignmentID string, opts *models.SignDocumentOptions) error {
-	body := map[string]bool{}
-	if opts != nil {
-		body["has_accepted_terms"] = opts.HasAcceptedTerms
+// ResetExpiration updates an assignment's expiration date.
+// PUT /documents/{document_id}/assignments/{assignment_id}/reset-expiration.
+func (r *AssignmentResource) ResetExpiration(ctx context.Context, documentID, assignmentID string, expiresAt *string) (*models.Assignment, error) {
+	var out models.Assignment
+	body := map[string]*string{"expires_at": expiresAt}
+	path := "/documents/" + url.PathEscape(documentID) +
+		"/assignments/" + url.PathEscape(assignmentID) +
+		"/reset-expiration"
+	_, err := r.http.NewRequest(http.MethodPut, path).WithBody(body).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
 	}
-	req := r.httpClient.NewRequest(http.MethodPost, fmt.Sprintf("/documents/%s/assignments/%s", documentID, assignmentID))
-	req.WithBody(body)
-	_, err := req.Execute(ctx, nil)
+	return &out, nil
+}
+
+// Sign submits filled fields for the signer's assignment.
+// POST /documents/{document_id}/assignments/{assignment_id}.
+func (r *AssignmentResource) Sign(ctx context.Context, documentID, assignmentID, signerAccessCode string, items []models.SignDocumentItem) error {
+	path := "/documents/" + url.PathEscape(documentID) + "/assignments/" + url.PathEscape(assignmentID)
+	_, err := r.http.NewRequest(http.MethodPost, path).
+		WithQuery("signer-access-code", signerAccessCode).
+		WithBody(items).
+		Execute(ctx, nil)
 	return err
 }
 
+// Decline rejects an assignment.
+// PUT /documents/{document_id}/assignments/{assignment_id}/reject.
 func (r *AssignmentResource) Decline(ctx context.Context, documentID, assignmentID, signerAccessCode, reason string) error {
-	body := map[string]string{"reason": reason}
-	req := r.httpClient.NewRequest(http.MethodPut, fmt.Sprintf("/documents/%s/assignments/%s/reject", documentID, assignmentID))
-	req.WithQuery("signer-access-code", signerAccessCode)
-	req.WithBody(body)
-	_, err := req.Execute(ctx, nil)
+	body := map[string]string{"decline_reason": reason}
+	path := "/documents/" + url.PathEscape(documentID) +
+		"/assignments/" + url.PathEscape(assignmentID) +
+		"/reject"
+	_, err := r.http.NewRequest(http.MethodPut, path).
+		WithQuery("signer-access-code", signerAccessCode).
+		WithBody(body).
+		Execute(ctx, nil)
 	return err
 }
 
-func (r *AssignmentResource) ListWhatsAppNotifications(ctx context.Context, documentID, assignmentID string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/documents/%s/assignments/%s/whatsapp-notifications", documentID, assignmentID))
-	_, err := req.Execute(ctx, &result)
+// ListWhatsAppNotifications lists WhatsApp delivery attempts for an assignment.
+// GET /documents/{document_id}/assignments/{assignment_id}/whatsapp-notifications.
+func (r *AssignmentResource) ListWhatsAppNotifications(ctx context.Context, documentID, assignmentID string) ([]models.WhatsAppNotification, error) {
+	var out []models.WhatsAppNotification
+	path := "/documents/" + url.PathEscape(documentID) +
+		"/assignments/" + url.PathEscape(assignmentID) +
+		"/whatsapp-notifications"
+	_, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return result, nil
+	return out, nil
 }
 
+// GetSigningInfo returns the signing surface for the signer's access code.
+// GET /sign.
 func (r *AssignmentResource) GetSigningInfo(ctx context.Context, signerAccessCode string) (*models.Document, error) {
-	var result models.Document
-	req := r.httpClient.NewRequest(http.MethodGet, "/sign")
-	req.WithQuery("signer-access-code", signerAccessCode)
-	_, err := req.Execute(ctx, &result)
+	var out models.Document
+	_, err := r.http.NewRequest(http.MethodGet, "/sign").
+		WithQuery("signer-access-code", signerAccessCode).
+		Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }

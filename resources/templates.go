@@ -2,59 +2,53 @@ package resources
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"net/url"
 
-	"github.com/assinafy/assinafy-go/internal"
-	"github.com/assinafy/assinafy-go/models"
+	"github.com/assinafy/golang-sdk/internal"
+	"github.com/assinafy/golang-sdk/models"
 )
 
+// TemplateResource exposes the documented `Template` endpoints.
 type TemplateResource struct {
-	httpClient *internal.HTTPClient
-	accountID  string
+	http      *internal.HTTPClient
+	accountID string
 }
 
+// NewTemplateResource constructs a TemplateResource.
 func NewTemplateResource(httpClient *internal.HTTPClient, accountID string) *TemplateResource {
-	return &TemplateResource{
-		httpClient: httpClient,
-		accountID:  accountID,
-	}
+	return &TemplateResource{http: httpClient, accountID: accountID}
 }
 
-func (r *TemplateResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.TemplateListItem], error) {
-	if accountID == "" {
-		accountID = r.accountID
-	}
-	if params == nil {
-		params = &models.ListParams{}
-	}
-	params.SetDefaults()
+// List returns the workspace templates page.
+// GET /accounts/{account_id}/templates.
+func (r *TemplateResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Template], error) {
+	accountID = resolveAccountID(accountID, r.accountID)
 
-	var result []models.TemplateListItem
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%s/templates", accountID))
-	req.WithQuery("page", fmt.Sprintf("%d", params.Page))
-	req.WithQuery("per-page", fmt.Sprintf("%d", params.PerPage))
-	if params.Search != "" {
-		req.WithQuery("search", params.Search)
+	var out []models.Template
+	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/templates")
+	applyListParams(req, params)
+	if params != nil {
+		req.WithQuery("status", params.Status)
 	}
 
-	resp, err := req.Execute(ctx, &result)
+	resp, err := req.Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-
-	return &models.PaginatedResult[models.TemplateListItem]{
-		Data:       result,
-		Pagination: extractPaginationMeta(resp.Headers),
-	}, nil
+	return paginated(out, resp), nil
 }
 
-func (r *TemplateResource) Get(ctx context.Context, accountID, templateID string) (*models.TemplateDetailsResponse, error) {
-	var result models.TemplateDetailsResponse
-	req := r.httpClient.NewRequest(http.MethodGet, fmt.Sprintf("/accounts/%s/templates/%s", accountID, templateID))
-	_, err := req.Execute(ctx, &result)
+// Get retrieves a template's details.
+// GET /accounts/{account_id}/templates/{template_id}.
+func (r *TemplateResource) Get(ctx context.Context, accountID, templateID string) (*models.Template, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	var out models.Template
+	path := "/accounts/" + url.PathEscape(accountID) + "/templates/" + url.PathEscape(templateID)
+	_, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &out, nil
 }

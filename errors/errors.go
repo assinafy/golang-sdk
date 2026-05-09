@@ -1,72 +1,79 @@
+// Package errors defines the error types returned by the Assinafy SDK.
 package errors
 
 import (
+	stderrors "errors"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
-type ErrorCode int
-
-const (
-	ErrCodeBadRequest      ErrorCode = 400
-	ErrCodeUnauthorized    ErrorCode = 401
-	ErrCodeForbidden       ErrorCode = 403
-	ErrCodeNotFound        ErrorCode = 404
-	ErrCodeTooManyRequests ErrorCode = 429
-	ErrCodeInternal        ErrorCode = 500
-)
-
+// APIError represents a non-2xx response from the Assinafy API.
 type APIError struct {
-	StatusCode int         `json:"status"`
-	Message    string      `json:"message"`
-	Data       interface{} `json:"data"`
+	StatusCode int    `json:"status"`
+	Message    string `json:"message"`
+	Data       any    `json:"data,omitempty"`
 }
 
 func (e *APIError) Error() string {
-	return e.Message
+	if e.Message == "" {
+		return fmt.Sprintf("assinafy: api error (status %d)", e.StatusCode)
+	}
+	return fmt.Sprintf("assinafy: %s (status %d)", e.Message, e.StatusCode)
 }
 
+// ValidationError aggregates field-level validation failures returned by the API.
 type ValidationError struct {
 	Errors []ValidationFieldError
 }
 
 func (e *ValidationError) Error() string {
 	if len(e.Errors) == 0 {
-		return "validation error"
+		return "assinafy: validation error"
 	}
-	msg := ""
-	for _, err := range e.Errors {
-		msg += fmt.Sprintf("%s: %s; ", err.Field, err.Message)
+	var b strings.Builder
+	b.WriteString("assinafy: validation error: ")
+	for i, err := range e.Errors {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		fmt.Fprintf(&b, "%s: %s", err.Field, err.Message)
 	}
-	return msg
+	return b.String()
 }
 
+// ValidationFieldError describes a single field-level validation problem.
 type ValidationFieldError struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`
 }
 
+// NetworkError wraps transport-level failures.
 type NetworkError struct {
-	OriginalError error
+	Err error
 }
 
 func (e *NetworkError) Error() string {
-	if e.OriginalError != nil {
-		return fmt.Sprintf("network error: %v", e.OriginalError)
+	if e.Err == nil {
+		return "assinafy: network error"
 	}
-	return "network error"
+	return "assinafy: network error: " + e.Err.Error()
 }
 
+func (e *NetworkError) Unwrap() error { return e.Err }
+
+// IsStatusCode reports whether err is an APIError with the given status code.
 func IsStatusCode(err error, code int) bool {
-	if apiErr, ok := err.(*APIError); ok {
-		return apiErr.StatusCode == code
-	}
-	return false
+	var apiErr *APIError
+	return stderrors.As(err, &apiErr) && apiErr.StatusCode == code
 }
 
+// IsRetryable reports whether err represents a transient failure (HTTP 429 or 5xx).
 func IsRetryable(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if stderrors.As(err, &apiErr) {
 		return apiErr.StatusCode == http.StatusTooManyRequests || apiErr.StatusCode >= 500
 	}
-	return false
+	var netErr *NetworkError
+	return stderrors.As(err, &netErr)
 }
