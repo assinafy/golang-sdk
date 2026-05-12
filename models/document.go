@@ -68,7 +68,7 @@ type DocumentActivity struct {
 	ID        int            `json:"id"`
 	Event     string         `json:"event"`
 	Message   string         `json:"message"`
-	Payload   map[string]any `json:"payload,omitempty"`
+	Payload   Payload        `json:"payload,omitempty"`
 	Origin    *RequestOrigin `json:"origin,omitempty"`
 	CreatedAt Timestamp      `json:"created_at"`
 }

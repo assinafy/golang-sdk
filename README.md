@@ -135,6 +135,23 @@ fmt.Println("event:", event.Event)
 
 All API failures are surfaced as `*errors.APIError` with a `StatusCode`, `Message`, and optional `Data`. Transport failures are wrapped in `*errors.NetworkError`. Helpers `errors.IsStatusCode(err, code)` and `errors.IsRetryable(err)` make it easy to react to common cases.
 
+## API Coverage
+
+Every endpoint documented at <https://api.assinafy.com.br/v1/docs> is exposed by the SDK:
+
+| Area | Endpoints | SDK |
+| --- | --- | --- |
+| Authentication | `POST /login`, `POST /authentication/social-login`, `POST/GET/DELETE /users/api-keys`, `PUT /authentication/{change,request,reset}-password` | `client.Authentication` |
+| Signers (workspace) | `POST/GET /accounts/{id}/signers`, `GET/PUT/DELETE /accounts/{id}/signers/{sid}` | `client.Signers` |
+| Signers (self-service) | `GET /signers/self`, `PUT /signers/accept-terms`, `POST /verify`, `PUT /documents/{id}/signers/confirm-data`, `POST/GET /signature[/{type}]` | `client.Signers` |
+| Documents | `POST/GET /accounts/{id}/documents`, `GET/DELETE /documents/{id}`, `GET /documents/{id}/{thumbnail,download/{art},pages/{pid}/download}`, `GET /documents/{hash}/verify`, `GET /documents/{id}/activities`, `GET /documents/statuses`, `POST /accounts/{id}/templates/{tid}/documents[/estimate-cost]` | `client.Documents` |
+| Public documents | `GET /public/documents/{id}`, `PUT /public/documents/{id}/send-token` | `client.PublicDocuments` |
+| Templates | `GET /accounts/{id}/templates`, `GET /accounts/{id}/templates/{tid}` | `client.Templates` |
+| Assignments | `POST /documents/{id}/assignments[/estimate-cost]`, `PUT /documents/{id}/assignments/{aid}/{reset-expiration,reject}`, `POST /documents/{id}/assignments/{aid}`, `PUT /documents/{id}/assignments/{aid}/signers/{sid}/resend`, `POST .../estimate-resend-cost`, `GET .../whatsapp-notifications`, `GET /sign` | `client.Assignments` |
+| Signer documents | `GET /signers/{sid}/document[s]`, `PUT /signers/documents/{sign,decline}-multiple`, `GET /signers/{sid}/documents/{id}/download/{art}` | `client.SignerDocuments` |
+| Field definitions | `POST/GET /accounts/{id}/fields`, `GET/PUT/DELETE /accounts/{id}/fields/{fid}`, `POST .../validate[-multiple]`, `GET /field-types` | `client.Fields` |
+| Webhooks | `GET/PUT/DELETE /accounts/{id}/webhooks/subscriptions`, `PUT /accounts/{id}/webhooks/inactivate`, `GET /accounts/{id}/webhooks`, `POST /accounts/{id}/webhooks/{did}/retry`, `GET /webhooks/event-types` | `client.Webhooks` |
+
 ## Development
 
 ```bash
@@ -145,6 +162,15 @@ go build ./...
 ```
 
 CI runs the same checks on every push and pull request via GitHub Actions (`actions/checkout@v6`, `actions/setup-go@v6`, `actions/upload-artifact@v7`, `golangci/golangci-lint-action@v9` with `golangci-lint v2.12`).
+
+### Integration tests
+
+Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints plus a full signer create/get/update/delete lifecycle and a document upload + estimate-cost round trip.
+
+```bash
+ASSINAFY_API_KEY=... ASSINAFY_ACCOUNT_ID=... \
+  go test -race -run '^TestIntegration' -v .
+```
 
 ## License
 

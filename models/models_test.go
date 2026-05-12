@@ -88,6 +88,41 @@ func TestTimestampMarshal(t *testing.T) {
 	}
 }
 
+func TestPayloadUnmarshal(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  Payload
+	}{
+		{"empty array", `[]`, nil},
+		{"null", `null`, nil},
+		{"object", `{"foo":"bar"}`, Payload{"foo": "bar"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var p Payload
+			if err := json.Unmarshal([]byte(tc.input), &p); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(p) != len(tc.want) {
+				t.Fatalf("got %v, want %v", p, tc.want)
+			}
+			for k, v := range tc.want {
+				if p[k] != v {
+					t.Errorf("key %q = %v, want %v", k, p[k], v)
+				}
+			}
+		})
+	}
+
+	t.Run("non-empty array rejected", func(t *testing.T) {
+		var p Payload
+		if err := json.Unmarshal([]byte(`["x"]`), &p); err == nil {
+			t.Fatal("expected an error for non-empty array")
+		}
+	})
+}
+
 func TestWebhookDispatchListParamsSetDefaults(t *testing.T) {
 	p := WebhookDispatchListParams{}
 	p.SetDefaults()

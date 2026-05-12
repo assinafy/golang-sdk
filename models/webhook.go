@@ -21,18 +21,18 @@ type UpdateWebhookSubscriptionRequest struct {
 // WebhookDispatch is a single delivery attempt entry from
 // GET /accounts/{id}/webhooks.
 type WebhookDispatch struct {
-	Resource     string         `json:"resource,omitempty"`
-	ID           string         `json:"id"`
-	Event        string         `json:"event"`
-	ActivityID   int            `json:"activity_id"`
-	Endpoint     *string        `json:"endpoint,omitempty"`
-	Payload      map[string]any `json:"payload,omitempty"`
-	Delivered    bool           `json:"delivered"`
-	HTTPStatus   *int           `json:"http_status,omitempty"`
-	ResponseBody *string        `json:"response_body,omitempty"`
-	Error        *string        `json:"error,omitempty"`
-	CreatedAt    Timestamp      `json:"created_at"`
-	UpdatedAt    Timestamp      `json:"updated_at"`
+	Resource     string    `json:"resource,omitempty"`
+	ID           string    `json:"id"`
+	Event        string    `json:"event"`
+	ActivityID   int       `json:"activity_id"`
+	Endpoint     *string   `json:"endpoint,omitempty"`
+	Payload      Payload   `json:"payload,omitempty"`
+	Delivered    bool      `json:"delivered"`
+	HTTPStatus   *int      `json:"http_status,omitempty"`
+	ResponseBody *string   `json:"response_body,omitempty"`
+	Error        *string   `json:"error,omitempty"`
+	CreatedAt    Timestamp `json:"created_at"`
+	UpdatedAt    Timestamp `json:"updated_at"`
 }
 
 // WebhookDispatchListParams are the query parameters for GET /accounts/{id}/webhooks.
@@ -69,7 +69,7 @@ type WebhookPayload struct {
 	ID        int            `json:"id"`
 	Event     string         `json:"event"`
 	Message   *string        `json:"message,omitempty"`
-	Payload   map[string]any `json:"payload,omitempty"`
+	Payload   Payload        `json:"payload,omitempty"`
 	Origin    *RequestOrigin `json:"origin,omitempty"`
 	CreatedAt Timestamp      `json:"created_at"`
 	Subject   map[string]any `json:"subject,omitempty"`
