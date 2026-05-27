@@ -45,6 +45,7 @@ type Client struct {
 	Assignments     *resources.AssignmentResource
 	Webhooks        *resources.WebhookResource
 	Templates       *resources.TemplateResource
+	Tags            *resources.TagResource
 	Fields          *resources.FieldResource
 	Authentication  *resources.AuthenticationResource
 	PublicDocuments *resources.PublicDocumentResource
@@ -86,6 +87,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Assignments:     resources.NewAssignmentResource(httpClient),
 		Webhooks:        resources.NewWebhookResource(httpClient, opts.AccountID),
 		Templates:       resources.NewTemplateResource(httpClient, opts.AccountID),
+		Tags:            resources.NewTagResource(httpClient, opts.AccountID),
 		Fields:          resources.NewFieldResource(httpClient, opts.AccountID),
 		Authentication:  resources.NewAuthenticationResource(httpClient),
 		PublicDocuments: resources.NewPublicDocumentResource(httpClient),

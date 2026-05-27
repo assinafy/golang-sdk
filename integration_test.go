@@ -236,6 +236,189 @@ func TestIntegrationDocumentUploadAndEstimateCost(t *testing.T) {
 	}
 }
 
+// TestIntegrationTagLifecycle creates a workspace tag, lists it, renames and
+// recolors it, then deletes it. Exercises POST/GET/PUT/DELETE on the Tag
+// resource against the live API.
+func TestIntegrationTagLifecycle(t *testing.T) {
+	c, _ := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	name := "go-sdk-audit-" + time.Now().UTC().Format("20060102T150405Z")
+	color := "ff8800"
+	tag, err := c.Tags.Create(ctx, "", &models.CreateTagRequest{Name: name, Color: &color})
+	if err != nil {
+		t.Fatalf("Tags.Create: %v", err)
+	}
+	t.Cleanup(func() {
+		if tag != nil {
+			if err := c.Tags.Delete(context.Background(), "", tag.ID, true); err != nil {
+				t.Logf("cleanup Tags.Delete(%s): %v", tag.ID, err)
+			}
+		}
+	})
+	if tag.ID == "" || tag.Name != name {
+		t.Fatalf("Tags.Create returned %+v", tag)
+	}
+
+	list, err := c.Tags.List(ctx, "", name)
+	if err != nil {
+		t.Fatalf("Tags.List: %v", err)
+	}
+	found := false
+	for _, tg := range list {
+		if tg.ID == tag.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("created tag %q not returned by List(search=%q): %+v", tag.ID, name, list)
+	}
+
+	newName := name + "-renamed"
+	newColor := "112233"
+	updated, err := c.Tags.Update(ctx, "", tag.ID, &models.UpdateTagRequest{Name: &newName, Color: &newColor})
+	if err != nil {
+		t.Fatalf("Tags.Update: %v", err)
+	}
+	if updated.Name != newName || updated.Color == nil || *updated.Color != newColor {
+		t.Errorf("Tags.Update returned %+v", updated)
+	}
+}
+
+// TestIntegrationDocumentTags uploads a document, replaces and appends tags,
+// reads them back, detaches one, and cleans up both the document and the tags
+// it auto-created. Exercises the four document-tag endpoints end-to-end.
+func TestIntegrationDocumentTags(t *testing.T) {
+	c, _ := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	stamp := time.Now().UTC().Format("20060102T150405Z")
+	tagA := "go-sdk-audit-a-" + stamp
+	tagB := "go-sdk-audit-b-" + stamp
+
+	doc, err := c.Documents.Upload(ctx, "", minimalPDF(), "go-sdk-tags.pdf", nil)
+	if err != nil {
+		t.Fatalf("Documents.Upload: %v", err)
+	}
+	t.Cleanup(func() {
+		// Detach-created tags survive document deletion; remove them too.
+		for _, name := range []string{tagA, tagB} {
+			tags, err := c.Tags.List(context.Background(), "", name)
+			if err != nil {
+				continue
+			}
+			for _, tg := range tags {
+				_ = c.Tags.Delete(context.Background(), "", tg.ID, true)
+			}
+		}
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanCancel()
+		for i := 0; i < 6; i++ {
+			if err := c.Documents.Delete(cleanCtx, doc.ID); err == nil {
+				return
+			}
+			time.Sleep(2 * time.Second)
+		}
+	})
+
+	replaced, err := c.Documents.ReplaceTags(ctx, "", doc.ID, []string{tagA})
+	if err != nil {
+		t.Fatalf("Documents.ReplaceTags: %v", err)
+	}
+	if len(replaced) != 1 || replaced[0].Name != tagA {
+		t.Errorf("ReplaceTags returned %+v", replaced)
+	}
+
+	appended, err := c.Documents.AppendTags(ctx, "", doc.ID, []string{tagB})
+	if err != nil {
+		t.Fatalf("Documents.AppendTags: %v", err)
+	}
+	if len(appended) != 2 {
+		t.Errorf("AppendTags returned %d tags, want 2: %+v", len(appended), appended)
+	}
+
+	listed, err := c.Documents.ListTags(ctx, "", doc.ID)
+	if err != nil {
+		t.Fatalf("Documents.ListTags: %v", err)
+	}
+	if len(listed) != 2 {
+		t.Errorf("ListTags returned %d tags, want 2: %+v", len(listed), listed)
+	}
+
+	if err := c.Documents.DetachTag(ctx, "", doc.ID, listed[0].ID); err != nil {
+		t.Fatalf("Documents.DetachTag: %v", err)
+	}
+	remaining, err := c.Documents.ListTags(ctx, "", doc.ID)
+	if err != nil {
+		t.Fatalf("Documents.ListTags (after detach): %v", err)
+	}
+	if len(remaining) != 1 {
+		t.Errorf("after detach got %d tags, want 1: %+v", len(remaining), remaining)
+	}
+}
+
+// TestIntegrationFieldLifecycle creates a custom field definition, reads it
+// back, updates it, and deletes it. Exercises POST/GET/PUT/DELETE on the Field
+// resource against the live API.
+func TestIntegrationFieldLifecycle(t *testing.T) {
+	c, _ := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	name := "go-sdk-audit-" + time.Now().UTC().Format("20060102T150405Z")
+	required := true
+	field, err := c.Fields.Create(ctx, "", &models.CreateFieldDefinitionRequest{
+		Type:       "text",
+		Name:       name,
+		IsRequired: &required,
+	})
+	if err != nil {
+		t.Fatalf("Fields.Create: %v", err)
+	}
+	t.Cleanup(func() {
+		if field != nil {
+			if err := c.Fields.Delete(context.Background(), "", field.ID); err != nil {
+				t.Logf("cleanup Fields.Delete(%s): %v", field.ID, err)
+			}
+		}
+	})
+	if field.ID == "" || field.Name != name {
+		t.Fatalf("Fields.Create returned %+v", field)
+	}
+
+	got, err := c.Fields.Get(ctx, "", field.ID)
+	if err != nil {
+		t.Fatalf("Fields.Get: %v", err)
+	}
+	if got.ID != field.ID {
+		t.Errorf("Fields.Get id = %q, want %q", got.ID, field.ID)
+	}
+
+	newName := name + "-renamed"
+	updated, err := c.Fields.Update(ctx, "", field.ID, &models.UpdateFieldDefinitionRequest{Name: &newName})
+	if err != nil {
+		t.Fatalf("Fields.Update: %v", err)
+	}
+	if updated.Name != newName {
+		t.Errorf("Fields.Update name = %q, want %q", updated.Name, newName)
+	}
+}
+
+// TestIntegrationWebhookDispatches lists webhook delivery attempts. An empty
+// result is valid; the test only proves the request encoding and response
+// decoding succeed against the live API.
+func TestIntegrationWebhookDispatches(t *testing.T) {
+	c, _ := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if _, err := c.Webhooks.ListDispatches(ctx, "", &models.WebhookDispatchListParams{PerPage: 5}); err != nil {
+		t.Fatalf("Webhooks.ListDispatches: %v", err)
+	}
+}
+
 // minimalPDF is the smallest spec-conformant PDF we can upload for testing.
 // Borrowed from common "smallest valid PDF" references.
 func minimalPDF() []byte {

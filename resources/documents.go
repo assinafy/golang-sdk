@@ -148,6 +148,60 @@ func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, account
 	return &out, nil
 }
 
+// ListTags lists the tags currently attached to a document.
+// GET /accounts/{account_id}/documents/{document_id}/tags.
+func (r *DocumentResource) ListTags(ctx context.Context, accountID, documentID string) ([]models.Tag, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	var out []models.Tag
+	path := "/accounts/" + url.PathEscape(accountID) + "/documents/" + url.PathEscape(documentID) + "/tags"
+	if _, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ReplaceTags replaces a document's tag set with the provided names, returning
+// the resulting tags. An empty slice detaches all tags. Unknown names are
+// created automatically (case-insensitive lookup).
+// PUT /accounts/{account_id}/documents/{document_id}/tags.
+func (r *DocumentResource) ReplaceTags(ctx context.Context, accountID, documentID string, tags []string) ([]models.Tag, error) {
+	return r.writeTags(ctx, http.MethodPut, accountID, documentID, tags)
+}
+
+// AppendTags attaches additional tags to a document without removing existing
+// ones, returning the resulting tags. Re-attaching a present tag is a no-op and
+// unknown names are created automatically.
+// POST /accounts/{account_id}/documents/{document_id}/tags.
+func (r *DocumentResource) AppendTags(ctx context.Context, accountID, documentID string, tags []string) ([]models.Tag, error) {
+	return r.writeTags(ctx, http.MethodPost, accountID, documentID, tags)
+}
+
+func (r *DocumentResource) writeTags(ctx context.Context, method, accountID, documentID string, tags []string) ([]models.Tag, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+	if tags == nil {
+		tags = []string{}
+	}
+
+	var out []models.Tag
+	path := "/accounts/" + url.PathEscape(accountID) + "/documents/" + url.PathEscape(documentID) + "/tags"
+	if _, err := r.http.NewRequest(method, path).WithBody(models.SetDocumentTagsRequest{Tags: tags}).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DetachTag detaches a single tag from a document. The tag itself is not
+// deleted, and detaching a tag that was not attached is a no-op.
+// DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}.
+func (r *DocumentResource) DetachTag(ctx context.Context, accountID, documentID, tagID string) error {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	path := "/accounts/" + url.PathEscape(accountID) + "/documents/" + url.PathEscape(documentID) + "/tags/" + url.PathEscape(tagID)
+	_, err := r.http.NewRequest(http.MethodDelete, path).Execute(ctx, nil)
+	return err
+}
+
 // ListStatuses returns the documented status codes.
 // GET /documents/statuses.
 func (r *DocumentResource) ListStatuses(ctx context.Context) ([]models.DocumentStatusInfo, error) {

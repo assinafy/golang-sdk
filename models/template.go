@@ -23,8 +23,13 @@ type Template struct {
 	Status       TemplateStatus `json:"status"`
 	Pages        []TemplatePage `json:"pages,omitempty"`
 	Roles        []TemplateRole `json:"roles"`
-	CreatedAt    Timestamp      `json:"created_at"`
-	UpdatedAt    Timestamp      `json:"updated_at"`
+	// Tags are the template's own tags. Each inline entry carries only ID and Name.
+	Tags []Tag `json:"tags,omitempty"`
+	// DefaultDocumentTags are applied to every document created from this
+	// template. Only the single-template endpoint populates this field.
+	DefaultDocumentTags []Tag     `json:"default_document_tags,omitempty"`
+	CreatedAt           Timestamp `json:"created_at"`
+	UpdatedAt           Timestamp `json:"updated_at"`
 }
 
 // TemplateRole describes a signing role declared on a template.

@@ -225,6 +225,134 @@ func TestFieldsListWithFlags(t *testing.T) {
 	}
 }
 
+func TestTagsCreateEncodesBody(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/accounts/acc1/tags" {
+			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if body["name"] != "Contracts" || body["color"] != "ff8800" {
+			t.Errorf("body = %v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":{"resource":"tag","id":"t1","name":"Contracts","color":"ff8800"}}`)
+	})
+
+	color := "ff8800"
+	r := NewTagResource(httpClient, "acc1")
+	tag, err := r.Create(context.Background(), "", &models.CreateTagRequest{Name: "Contracts", Color: &color})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if tag.ID != "t1" || tag.Color == nil || *tag.Color != "ff8800" {
+		t.Errorf("tag = %+v", tag)
+	}
+}
+
+func TestTagsListEncodesSearch(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("search"); got != "contract" {
+			t.Errorf("search = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[{"id":"t1","name":"Contracts"}]}`)
+	})
+
+	r := NewTagResource(httpClient, "acc1")
+	tags, err := r.List(context.Background(), "", "contract")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(tags) != 1 || tags[0].ID != "t1" {
+		t.Errorf("tags = %+v", tags)
+	}
+}
+
+func TestTagsDeleteSendsForce(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/accounts/acc1/tags/t1" {
+			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("force"); got != "true" {
+			t.Errorf("force = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":{"deleted":true}}`)
+	})
+
+	r := NewTagResource(httpClient, "acc1")
+	if err := r.Delete(context.Background(), "", "t1", true); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+}
+
+func TestDocumentTagsReplaceSendsNames(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/accounts/acc1/documents/d1/tags" {
+			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
+		}
+		var body struct {
+			Tags []string `json:"tags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(body.Tags) != 2 || body.Tags[0] != "A" || body.Tags[1] != "B" {
+			t.Errorf("tags = %v", body.Tags)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[{"id":"t1","name":"A"},{"id":"t2","name":"B"}]}`)
+	})
+
+	r := NewDocumentResource(httpClient, "acc1")
+	tags, err := r.ReplaceTags(context.Background(), "", "d1", []string{"A", "B"})
+	if err != nil {
+		t.Fatalf("ReplaceTags: %v", err)
+	}
+	if len(tags) != 2 {
+		t.Errorf("tags = %+v", tags)
+	}
+}
+
+func TestDocumentTagsReplaceNilBecomesEmptyArray(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tags []string `json:"tags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if body.Tags == nil || len(body.Tags) != 0 {
+			t.Errorf("expected empty (non-null) tags array, got %v", body.Tags)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	r := NewDocumentResource(httpClient, "acc1")
+	if _, err := r.ReplaceTags(context.Background(), "", "d1", nil); err != nil {
+		t.Fatalf("ReplaceTags: %v", err)
+	}
+}
+
+func TestDocumentTagsDetach(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/accounts/acc1/documents/d1/tags/t1" {
+			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":{"detached":true}}`)
+	})
+
+	r := NewDocumentResource(httpClient, "acc1")
+	if err := r.DetachTag(context.Background(), "", "d1", "t1"); err != nil {
+		t.Fatalf("DetachTag: %v", err)
+	}
+}
+
 func TestPathEscaping(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.EscapedPath(), "/accounts/acc%2F1/signers/s%201") {

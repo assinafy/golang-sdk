@@ -13,6 +13,22 @@ type Signer struct {
 	VerificationMethod  *string  `json:"verification_method,omitempty"`
 	NotificationMethods []string `json:"notification_methods,omitempty"`
 	Completed           bool     `json:"completed,omitempty"`
+	// The following fields are populated only when the signer is embedded in an
+	// assignment (the Assignment Signer object).
+	Step                *int                 `json:"step,omitempty"`
+	Notified            *bool                `json:"notified,omitempty"`
+	NotificationHistory []SignerNotification `json:"notification_history,omitempty"`
+}
+
+// SignerNotification is one tracked delivery attempt inside an assignment
+// signer's NotificationHistory.
+type SignerNotification struct {
+	Event        string     `json:"event"`
+	Status       string     `json:"status"`
+	ErrorCode    *string    `json:"error_code,omitempty"`
+	ErrorMessage *string    `json:"error_message,omitempty"`
+	SentAt       *Timestamp `json:"sent_at,omitempty"`
+	FailedAt     *Timestamp `json:"failed_at,omitempty"`
 }
 
 // CreateSignerRequest is the body for POST /accounts/{id}/signers.
@@ -41,4 +57,9 @@ type SignerReference struct {
 	ID                  string   `json:"id"`
 	VerificationMethod  string   `json:"verification_method,omitempty"`
 	NotificationMethods []string `json:"notification_methods,omitempty"`
+	// Step controls sequential signing order. Signers sharing a step sign in
+	// parallel; a step is activated only after every signer in the previous
+	// step has signed. When supplied, every signer must supply it and the
+	// values must form a contiguous sequence starting at 1.
+	Step *int `json:"step,omitempty"`
 }

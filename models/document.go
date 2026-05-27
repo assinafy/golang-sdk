@@ -35,6 +35,7 @@ type Document struct {
 	SigningURL       *string            `json:"signing_url,omitempty"`
 	DeclineReason    *string            `json:"decline_reason,omitempty"`
 	DeclinedBy       *Signer            `json:"declined_by,omitempty"`
+	Tags             []Tag              `json:"tags,omitempty"`
 	CreatedAt        Timestamp          `json:"created_at,omitempty"`
 	UpdatedAt        Timestamp          `json:"updated_at,omitempty"`
 	Assignment       *Assignment        `json:"assignment,omitempty"`

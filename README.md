@@ -4,7 +4,7 @@
 
 Go client for the [Assinafy API](https://api.assinafy.com.br/v1/docs).
 
-The SDK covers every documented Assinafy REST resource: authentication, documents (including public document flows), signers (including signer-facing flows), assignments, field definitions, templates, and webhooks.
+The SDK covers every documented Assinafy REST resource: authentication, documents (including public document flows and document tags), signers (including signer-facing flows), assignments, field definitions, templates, tags, and webhooks.
 
 ## Requirements
 
@@ -107,6 +107,10 @@ assignment, err := client.Assignments.Create(ctx, doc.ID, &models.CreateAssignme
 // Templates
 templates, err := client.Templates.List(ctx, "", &models.ListParams{Search: "Service"})
 
+// Tags (workspace labels) and document tags
+tag, err := client.Tags.Create(ctx, "", &models.CreateTagRequest{Name: "Contracts"})
+attached, err := client.Documents.ReplaceTags(ctx, "", doc.ID, []string{"Contracts", "2026-Q1"})
+
 // Field definitions
 fields, err := client.Fields.List(ctx, "", &models.ListFieldDefinitionsParams{IncludeStandard: true})
 
@@ -145,8 +149,10 @@ Every endpoint documented at <https://api.assinafy.com.br/v1/docs> is exposed by
 | Signers (workspace) | `POST/GET /accounts/{id}/signers`, `GET/PUT/DELETE /accounts/{id}/signers/{sid}` | `client.Signers` |
 | Signers (self-service) | `GET /signers/self`, `PUT /signers/accept-terms`, `POST /verify`, `PUT /documents/{id}/signers/confirm-data`, `POST/GET /signature[/{type}]` | `client.Signers` |
 | Documents | `POST/GET /accounts/{id}/documents`, `GET/DELETE /documents/{id}`, `GET /documents/{id}/{thumbnail,download/{art},pages/{pid}/download}`, `GET /documents/{hash}/verify`, `GET /documents/{id}/activities`, `GET /documents/statuses`, `POST /accounts/{id}/templates/{tid}/documents[/estimate-cost]` | `client.Documents` |
+| Document tags | `GET/PUT/POST /accounts/{id}/documents/{did}/tags`, `DELETE /accounts/{id}/documents/{did}/tags/{tid}` | `client.Documents.{ListTags,ReplaceTags,AppendTags,DetachTag}` |
 | Public documents | `GET /public/documents/{id}`, `PUT /public/documents/{id}/send-token` | `client.PublicDocuments` |
 | Templates | `GET /accounts/{id}/templates`, `GET /accounts/{id}/templates/{tid}` | `client.Templates` |
+| Tags | `GET/POST /accounts/{id}/tags`, `PUT/DELETE /accounts/{id}/tags/{tid}` | `client.Tags` |
 | Assignments | `POST /documents/{id}/assignments[/estimate-cost]`, `PUT /documents/{id}/assignments/{aid}/{reset-expiration,reject}`, `POST /documents/{id}/assignments/{aid}`, `PUT /documents/{id}/assignments/{aid}/signers/{sid}/resend`, `POST .../estimate-resend-cost`, `GET .../whatsapp-notifications`, `GET /sign` | `client.Assignments` |
 | Signer documents | `GET /signers/{sid}/document[s]`, `PUT /signers/documents/{sign,decline}-multiple`, `GET /signers/{sid}/documents/{id}/download/{art}` | `client.SignerDocuments` |
 | Field definitions | `POST/GET /accounts/{id}/fields`, `GET/PUT/DELETE /accounts/{id}/fields/{fid}`, `POST .../validate[-multiple]`, `GET /field-types` | `client.Fields` |
@@ -165,7 +171,7 @@ CI runs the same checks on every push and pull request via GitHub Actions (`acti
 
 ### Integration tests
 
-Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints plus a full signer create/get/update/delete lifecycle and a document upload + estimate-cost round trip.
+Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints plus full create/get/update/delete lifecycles for signers, tags, and field definitions, a document upload + estimate-cost round trip, and the document-tag attach/detach flow.
 
 ```bash
 ASSINAFY_API_KEY=... ASSINAFY_ACCOUNT_ID=... \
