@@ -10,12 +10,14 @@ type WebhookSubscription struct {
 }
 
 // UpdateWebhookSubscriptionRequest is the body for
-// PUT /accounts/{id}/webhooks/subscriptions.
+// PUT /accounts/{id}/webhooks/subscriptions. All four fields are required by the
+// API, so url and email are always serialized (even when empty) for the server
+// to validate.
 type UpdateWebhookSubscriptionRequest struct {
 	Events   []string `json:"events"`
 	IsActive bool     `json:"is_active"`
-	URL      string   `json:"url,omitempty"`
-	Email    string   `json:"email,omitempty"`
+	URL      string   `json:"url"`
+	Email    string   `json:"email"`
 }
 
 // WebhookDispatch is a single delivery attempt entry from

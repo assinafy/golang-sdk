@@ -12,6 +12,10 @@ import (
 
 // integrationClient builds a client from environment variables. The test is
 // skipped when the credentials are not present so unit-only CI runs pass.
+//
+// ASSINAFY_BASE_URL optionally overrides the API base URL; set it to
+// assinafy.SandboxBaseURL ("https://sandbox.assinafy.com.br/v1") to run against
+// the sandbox. It defaults to the production base URL.
 func integrationClient(t *testing.T) (*Client, string) {
 	t.Helper()
 	apiKey := os.Getenv("ASSINAFY_API_KEY")
@@ -19,7 +23,12 @@ func integrationClient(t *testing.T) (*Client, string) {
 	if apiKey == "" || accountID == "" {
 		t.Skip("ASSINAFY_API_KEY and ASSINAFY_ACCOUNT_ID must be set for integration tests")
 	}
-	c, err := NewClient(ClientOptions{APIKey: apiKey, AccountID: accountID, Timeout: 30 * time.Second})
+	c, err := NewClient(ClientOptions{
+		APIKey:    apiKey,
+		AccountID: accountID,
+		BaseURL:   os.Getenv("ASSINAFY_BASE_URL"),
+		Timeout:   30 * time.Second,
+	})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}

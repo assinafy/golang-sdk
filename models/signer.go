@@ -2,19 +2,21 @@ package models
 
 // Signer is the canonical signer object.
 type Signer struct {
-	Resource            string   `json:"resource,omitempty"`
-	ID                  string   `json:"id"`
-	FullName            string   `json:"full_name"`
-	Email               *string  `json:"email,omitempty"`
-	WhatsAppPhoneNumber *string  `json:"whatsapp_phone_number,omitempty"`
-	HasAcceptedTerms    bool     `json:"has_accepted_terms"`
-	HasSignature        bool     `json:"has_signature,omitempty"`
-	HasInitial          bool     `json:"has_initial,omitempty"`
-	VerificationMethod  *string  `json:"verification_method,omitempty"`
-	NotificationMethods []string `json:"notification_methods,omitempty"`
-	Completed           bool     `json:"completed,omitempty"`
+	// Base fields, returned by every account-scoped signer endpoint.
+	Resource            string  `json:"resource,omitempty"`
+	ID                  string  `json:"id"`
+	FullName            string  `json:"full_name"`
+	Email               *string `json:"email,omitempty"`
+	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
+	HasAcceptedTerms    bool    `json:"has_accepted_terms"`
+	// HasSignature and HasInitial are returned only by GET /signers/self.
+	HasSignature bool `json:"has_signature,omitempty"`
+	HasInitial   bool `json:"has_initial,omitempty"`
 	// The following fields are populated only when the signer is embedded in an
 	// assignment (the Assignment Signer object).
+	VerificationMethod  *string              `json:"verification_method,omitempty"`
+	NotificationMethods []string             `json:"notification_methods,omitempty"`
+	Completed           bool                 `json:"completed,omitempty"`
 	Step                *int                 `json:"step,omitempty"`
 	Notified            *bool                `json:"notified,omitempty"`
 	NotificationHistory []SignerNotification `json:"notification_history,omitempty"`

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
@@ -30,6 +31,9 @@ func (r *TemplateResource) List(ctx context.Context, accountID string, params *m
 	applyListParams(req, params)
 	if params != nil {
 		req.WithQuery("status", params.Status)
+		if len(params.Tags) > 0 {
+			req.WithQuery("tags", strings.Join(params.Tags, ","))
+		}
 	}
 
 	resp, err := req.Execute(ctx, &out)

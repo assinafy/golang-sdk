@@ -31,7 +31,7 @@ type Document struct {
 	Name             string             `json:"name"`
 	Status           DocumentStatus     `json:"status"`
 	Artifacts        *DocumentArtifacts `json:"artifacts,omitempty"`
-	IsClosed         bool               `json:"is_closed,omitempty"`
+	IsClosed         bool               `json:"is_closed"`
 	SigningURL       *string            `json:"signing_url,omitempty"`
 	DeclineReason    *string            `json:"decline_reason,omitempty"`
 	DeclinedBy       *Signer            `json:"declined_by,omitempty"`
@@ -87,7 +87,11 @@ type CreateDocumentFromTemplateOptions struct {
 	Message      string                `json:"message,omitempty"`
 	EditorFields []TemplateEditorField `json:"editor_fields,omitempty"`
 	ExpiresAt    string                `json:"expires_at,omitempty"`
-	Signers      []TemplateSigner      `json:"signers"`
+	// Tags are tag names to attach to the new document. Unknown names are
+	// auto-created; the template's default-document-tags are always applied and
+	// merged with these.
+	Tags    []string         `json:"tags,omitempty"`
+	Signers []TemplateSigner `json:"signers"`
 }
 
 // TemplateEditorField is a single value bound to a template editor field.
@@ -102,6 +106,11 @@ type TemplateSigner struct {
 	ID                  string   `json:"id,omitempty"`
 	VerificationMethod  string   `json:"verification_method,omitempty"`
 	NotificationMethods []string `json:"notification_methods,omitempty"`
+	// Step controls sequential signing order (positive integer starting at 1).
+	// Signers sharing a step sign in parallel; a step is activated only after
+	// every signer in the previous step has signed. Optional; omit to notify all
+	// signers at once. Ignored by the estimate-cost endpoint.
+	Step *int `json:"step,omitempty"`
 }
 
 // UploadAndRequestSignaturesSigner is a high-level signer payload accepted by

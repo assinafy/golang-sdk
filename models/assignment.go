@@ -93,10 +93,14 @@ type CostEstimate struct {
 	DocumentBalance        float64             `json:"document_balance,omitempty"`
 	CreditBalance          float64             `json:"credit_balance,omitempty"`
 	HasSufficientResources bool                `json:"has_sufficient_resources,omitempty"`
-	Total                  float64             `json:"total,omitempty"`
-	HasSufficientCredits   bool                `json:"has_sufficient_credits,omitempty"`
-	Description            string              `json:"description,omitempty"`
-	TotalCost              float64             `json:"total_cost,omitempty"`
+	// BlockingReason is set when the operation cannot proceed (e.g. PendingPayment,
+	// InsufficientDocuments, InsufficientCredits) and is null otherwise.
+	BlockingReason *string `json:"blocking_reason"`
+	// Message is the human-readable explanation for the current block state, or null.
+	Message *string `json:"message"`
+	// Total and HasSufficientCredits are returned by the estimate-resend-cost endpoint.
+	Total                float64 `json:"total,omitempty"`
+	HasSufficientCredits bool    `json:"has_sufficient_credits,omitempty"`
 }
 
 // CostBreakdownItem is a single line in CostEstimate.Breakdown.

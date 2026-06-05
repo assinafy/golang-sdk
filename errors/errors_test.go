@@ -19,28 +19,6 @@ func TestAPIError(t *testing.T) {
 	}
 }
 
-func TestValidationError(t *testing.T) {
-	t.Run("empty errors", func(t *testing.T) {
-		err := &ValidationError{}
-		if !strings.Contains(err.Error(), "validation error") {
-			t.Errorf("unexpected message: %q", err.Error())
-		}
-	})
-
-	t.Run("with field errors", func(t *testing.T) {
-		err := &ValidationError{
-			Errors: []ValidationFieldError{
-				{Field: "email", Message: "required"},
-				{Field: "name", Message: "too short"},
-			},
-		}
-		got := err.Error()
-		if !strings.Contains(got, "email: required") || !strings.Contains(got, "name: too short") {
-			t.Errorf("unexpected message: %q", got)
-		}
-	})
-}
-
 func TestNetworkError(t *testing.T) {
 	orig := errors.New("connection refused")
 	err := &NetworkError{Err: orig}

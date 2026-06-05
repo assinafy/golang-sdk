@@ -7,7 +7,7 @@ type FieldDefinition struct {
 	Name         string  `json:"name"`
 	Type         string  `json:"type"`
 	Regex        *string `json:"regex,omitempty"`
-	IsPreDefined bool    `json:"is_pre_defined,omitempty"`
+	IsPreDefined bool    `json:"is_pre_defined"`
 	IsActive     bool    `json:"is_active"`
 	IsRequired   bool    `json:"is_required"`
 	IsStandard   bool    `json:"is_standard"`

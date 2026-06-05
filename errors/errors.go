@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 // APIError represents a non-2xx response from the Assinafy API.
@@ -20,32 +19,6 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("assinafy: api error (status %d)", e.StatusCode)
 	}
 	return fmt.Sprintf("assinafy: %s (status %d)", e.Message, e.StatusCode)
-}
-
-// ValidationError aggregates field-level validation failures returned by the API.
-type ValidationError struct {
-	Errors []ValidationFieldError
-}
-
-func (e *ValidationError) Error() string {
-	if len(e.Errors) == 0 {
-		return "assinafy: validation error"
-	}
-	var b strings.Builder
-	b.WriteString("assinafy: validation error: ")
-	for i, err := range e.Errors {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		fmt.Fprintf(&b, "%s: %s", err.Field, err.Message)
-	}
-	return b.String()
-}
-
-// ValidationFieldError describes a single field-level validation problem.
-type ValidationFieldError struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
 }
 
 // NetworkError wraps transport-level failures.

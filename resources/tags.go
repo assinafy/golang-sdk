@@ -54,8 +54,8 @@ func (r *TagResource) Create(ctx context.Context, accountID string, body *models
 }
 
 // Update updates a tag's name and/or color. Nil request fields are left
-// unchanged. The API returns 409 Conflict when the new name collides with
-// another tag.
+// unchanged; set UpdateTagRequest.ClearColor to remove an existing color. The
+// API returns 409 Conflict when the new name collides with another tag.
 // PUT /accounts/{account_id}/tags/{tag_id}.
 func (r *TagResource) Update(ctx context.Context, accountID, tagID string, body *models.UpdateTagRequest) (*models.Tag, error) {
 	accountID = resolveAccountID(accountID, r.accountID)

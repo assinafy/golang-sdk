@@ -17,7 +17,7 @@ import (
 	"github.com/assinafy/golang-sdk/errors"
 )
 
-const userAgent = "assinafy-go-sdk/1.0"
+const userAgent = "assinafy-go-sdk/1.0.0"
 
 // HTTPClient is a thin JSON/multipart client around net/http.
 type HTTPClient struct {
@@ -220,11 +220,9 @@ func (c *HTTPClient) Download(ctx context.Context, path string, query map[string
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		_, parseErr := parseResponse(resp, nil)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		return nil, &errors.APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
+		// parseResponse always returns a non-nil error for status >= 400.
+		_, err := parseResponse(resp, nil)
+		return nil, err
 	}
 
 	return io.ReadAll(resp.Body)

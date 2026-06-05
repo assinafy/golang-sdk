@@ -88,6 +88,8 @@ auth, err := client.Authentication.Login(ctx, &models.LoginRequest{
 // Documents
 doc, err := client.Documents.Upload(ctx, "", pdfBytes, "contract.pdf", nil)
 docs, err := client.Documents.List(ctx, "", &models.ListParams{Search: "contract"})
+// Filter by tag IDs (AND semantics — only documents carrying every listed tag):
+tagged, err := client.Documents.List(ctx, "", &models.ListParams{Tags: []string{tagID1, tagID2}})
 verified, err := client.Documents.Verify(ctx, "SIGNATURE_HASH")
 
 // Signers
@@ -120,12 +122,10 @@ sub, err := client.Webhooks.GetSubscription(ctx, "")
 
 ## Webhook Verification
 
+`ExtractEvent` decodes a delivered webhook body into a typed `models.WebhookPayload`:
+
 ```go
 verifier := assinafy.NewWebhookVerifier(os.Getenv("ASSINAFY_WEBHOOK_SECRET"))
-
-if !verifier.Verify(rawBody, signature) {
-    return
-}
 
 event, err := verifier.ExtractEvent(rawBody)
 if err != nil {
@@ -134,6 +134,8 @@ if err != nil {
 
 fmt.Println("event:", event.Event)
 ```
+
+> **`Verify` is experimental.** Assinafy's documented [delivery contract](https://api.assinafy.com.br/v1/docs) specifies only the HTTP method, content type, and retry/circuit-breaker behaviour — it does not define a signature header, and the subscription object exposes no shared-secret field. `Verify` implements the conventional `hex(HMAC-SHA256(secret, body))` scheme, but confirm the exact header and algorithm with Assinafy before relying on it for authenticity.
 
 ## Errors
 
@@ -156,7 +158,9 @@ Every endpoint documented at <https://api.assinafy.com.br/v1/docs> is exposed by
 | Assignments | `POST /documents/{id}/assignments[/estimate-cost]`, `PUT /documents/{id}/assignments/{aid}/{reset-expiration,reject}`, `POST /documents/{id}/assignments/{aid}`, `PUT /documents/{id}/assignments/{aid}/signers/{sid}/resend`, `POST .../estimate-resend-cost`, `GET .../whatsapp-notifications`, `GET /sign` | `client.Assignments` |
 | Signer documents | `GET /signers/{sid}/document[s]`, `PUT /signers/documents/{sign,decline}-multiple`, `GET /signers/{sid}/documents/{id}/download/{art}` | `client.SignerDocuments` |
 | Field definitions | `POST/GET /accounts/{id}/fields`, `GET/PUT/DELETE /accounts/{id}/fields/{fid}`, `POST .../validate[-multiple]`, `GET /field-types` | `client.Fields` |
-| Webhooks | `GET/PUT/DELETE /accounts/{id}/webhooks/subscriptions`, `PUT /accounts/{id}/webhooks/inactivate`, `GET /accounts/{id}/webhooks`, `POST /accounts/{id}/webhooks/{did}/retry`, `GET /webhooks/event-types` | `client.Webhooks` |
+| Webhooks | `GET/PUT /accounts/{id}/webhooks/subscriptions`, `PUT /accounts/{id}/webhooks/inactivate`, `GET /accounts/{id}/webhooks`, `POST /accounts/{id}/webhooks/{did}/retry`, `GET /webhooks/event-types` | `client.Webhooks` |
+
+Subscriptions are turned off with `client.Webhooks.Inactivate`. The `DELETE /accounts/{id}/webhooks/subscriptions` route mentioned in passing by the docs is not implemented by the live API (it returns 404), so the SDK does not expose it.
 
 ## Development
 
@@ -171,10 +175,18 @@ CI runs the same checks on every push and pull request via GitHub Actions (`acti
 
 ### Integration tests
 
-Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints plus full create/get/update/delete lifecycles for signers, tags, and field definitions, a document upload + estimate-cost round trip, and the document-tag attach/detach flow.
+Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints, full create/get/update/delete lifecycles for signers, tags, and field definitions, a document upload + estimate-cost round trip, artifact/page downloads, signature-hash verification, the document-tag attach/detach flow, and the webhook subscription update/inactivate lifecycle.
+
+| Variable | Purpose |
+| --- | --- |
+| `ASSINAFY_API_KEY` | API key (required to run). |
+| `ASSINAFY_ACCOUNT_ID` | Workspace/account ID (required to run). |
+| `ASSINAFY_BASE_URL` | Optional base URL override; set to `https://sandbox.assinafy.com.br/v1` to target the sandbox. Defaults to production. |
+| `ASSINAFY_RUN_ASSIGNMENT_TESTS` | Set to `1` to also run the full virtual-assignment lifecycle. **This sends real signature-request emails**, so it is opt-in. |
 
 ```bash
 ASSINAFY_API_KEY=... ASSINAFY_ACCOUNT_ID=... \
+ASSINAFY_BASE_URL=https://sandbox.assinafy.com.br/v1 \
   go test -race -run '^TestIntegration' -v .
 ```
 
