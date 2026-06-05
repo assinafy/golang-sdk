@@ -12,6 +12,15 @@ import (
 
 // WebhookVerifier validates webhook signatures and decodes payloads. The zero
 // value is not usable; call NewWebhookVerifier.
+//
+// Signature verification is EXPERIMENTAL. The documented webhook delivery
+// contract (https://api.assinafy.com.br/v1/docs) describes only the HTTP method,
+// content type, retry, and circuit-breaker behaviour — it does not specify a
+// signature header or a way to provision a shared secret. Verify implements the
+// conventional hex(HMAC-SHA256(secret, body)) scheme, but until Assinafy
+// documents the exact header name and signing algorithm you should confirm the
+// contract before relying on Verify for authenticity. ExtractEvent (payload
+// decoding) is unaffected by this caveat.
 type WebhookVerifier struct {
 	secret []byte
 }
@@ -21,8 +30,10 @@ func NewWebhookVerifier(secret string) *WebhookVerifier {
 	return &WebhookVerifier{secret: []byte(secret)}
 }
 
-// Verify performs a constant-time comparison of the hex-encoded HMAC-SHA256
-// of payload against the supplied signature.
+// Verify performs a constant-time comparison of the hex-encoded HMAC-SHA256 of
+// payload against the supplied signature. See the WebhookVerifier doc comment:
+// the signing contract is not documented by Assinafy, so treat this as
+// experimental until confirmed.
 func (v *WebhookVerifier) Verify(payload []byte, signature string) bool {
 	mac := hmac.New(sha256.New, v.secret)
 	mac.Write(payload)

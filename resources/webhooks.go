@@ -49,21 +49,9 @@ func (r *WebhookResource) GetSubscription(ctx context.Context, accountID string)
 	return &out, nil
 }
 
-// DeleteSubscription removes the workspace webhook subscription.
-// DELETE /accounts/{account_id}/webhooks/subscriptions.
-func (r *WebhookResource) DeleteSubscription(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
-	accountID = resolveAccountID(accountID, r.accountID)
-
-	var out models.WebhookSubscription
-	path := "/accounts/" + url.PathEscape(accountID) + "/webhooks/subscriptions"
-	_, err := r.http.NewRequest(http.MethodDelete, path).Execute(ctx, &out)
-	if err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// Inactivate disables the workspace webhook subscription.
+// Inactivate disables the workspace webhook subscription. This is the supported
+// way to stop receiving webhook deliveries; the DELETE subscriptions route the
+// docs mention in passing is not implemented by the live API (returns 404).
 // PUT /accounts/{account_id}/webhooks/inactivate.
 func (r *WebhookResource) Inactivate(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -100,8 +88,10 @@ func (r *WebhookResource) ListDispatches(ctx context.Context, accountID string, 
 	var out []models.WebhookDispatch
 	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/webhooks").
 		WithQuery("page", strconv.Itoa(params.Page)).
-		WithQuery("per-page", strconv.Itoa(params.PerPage)).
-		WithQuery("event", params.Event)
+		WithQuery("per-page", strconv.Itoa(params.PerPage))
+	if params.Event != "" {
+		req.WithQuery("event", params.Event)
+	}
 	if params.Delivered != nil {
 		req.WithQuery("delivered", strconv.FormatBool(*params.Delivered))
 	}

@@ -1,6 +1,9 @@
 package models
 
-// User describes an account holder returned by login responses.
+// User describes an account holder. It is returned by the login and social-login
+// responses and also appears as the subject of some webhook events. Not every
+// field is populated in every context — for example is_password_set is emitted
+// for webhook subjects but not by the login endpoints.
 type User struct {
 	ID               string     `json:"id"`
 	Name             string     `json:"name"`

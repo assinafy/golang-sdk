@@ -23,8 +23,9 @@ type Template struct {
 	Status       TemplateStatus `json:"status"`
 	Pages        []TemplatePage `json:"pages,omitempty"`
 	Roles        []TemplateRole `json:"roles"`
-	// Tags are the template's own tags. Each inline entry carries only ID and Name.
-	Tags []Tag `json:"tags,omitempty"`
+	// Tags are the template's own tags (always present, possibly empty). Each
+	// inline entry carries only ID and Name.
+	Tags []Tag `json:"tags"`
 	// DefaultDocumentTags are applied to every document created from this
 	// template. Only the single-template endpoint populates this field.
 	DefaultDocumentTags []Tag     `json:"default_document_tags,omitempty"`

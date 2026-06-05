@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestListParamsSetDefaults(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.input.SetDefaults()
-			if tc.input != tc.expected {
+			if !reflect.DeepEqual(tc.input, tc.expected) {
 				t.Errorf("got %+v, want %+v", tc.input, tc.expected)
 			}
 		})
@@ -121,6 +122,80 @@ func TestPayloadUnmarshal(t *testing.T) {
 			t.Fatal("expected an error for non-empty array")
 		}
 	})
+}
+
+func TestCostEstimateDecodesBlockingReasonAndMessage(t *testing.T) {
+	// Matches the live estimate-cost envelope data shape.
+	const body = `{"documents":1,"credits":0,"total_credits":0,"breakdown":[],` +
+		`"document_balance":73,"credit_balance":0,"has_sufficient_resources":true,` +
+		`"blocking_reason":null,"message":null}`
+	var ce CostEstimate
+	if err := json.Unmarshal([]byte(body), &ce); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if ce.Documents != 1 || !ce.HasSufficientResources {
+		t.Errorf("unexpected decode: %+v", ce)
+	}
+	if ce.BlockingReason != nil || ce.Message != nil {
+		t.Errorf("expected nil blocking_reason/message, got %v / %v", ce.BlockingReason, ce.Message)
+	}
+
+	const blocked = `{"documents":1,"blocking_reason":"InsufficientCredits",` +
+		`"message":"Account does not have enough credits."}`
+	var ce2 CostEstimate
+	if err := json.Unmarshal([]byte(blocked), &ce2); err != nil {
+		t.Fatalf("unmarshal blocked: %v", err)
+	}
+	if ce2.BlockingReason == nil || *ce2.BlockingReason != "InsufficientCredits" {
+		t.Errorf("blocking_reason = %v", ce2.BlockingReason)
+	}
+	if ce2.Message == nil || *ce2.Message == "" {
+		t.Errorf("message = %v", ce2.Message)
+	}
+}
+
+func TestTemplateSignerStepMarshal(t *testing.T) {
+	step := 2
+	out, err := json.Marshal(TemplateSigner{RoleID: "r1", ID: "s1", Step: &step})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if got := string(out); got != `{"role_id":"r1","id":"s1","step":2}` {
+		t.Errorf("got %s", got)
+	}
+	// Step omitted when nil.
+	out, _ = json.Marshal(TemplateSigner{RoleID: "r1"})
+	if got := string(out); got != `{"role_id":"r1"}` {
+		t.Errorf("nil step should be omitted, got %s", got)
+	}
+}
+
+func TestUpdateTagRequestMarshal(t *testing.T) {
+	name := "Renamed"
+	color := "112233"
+	cases := []struct {
+		name string
+		req  UpdateTagRequest
+		want string
+	}{
+		{"name only", UpdateTagRequest{Name: &name}, `{"name":"Renamed"}`},
+		{"color only", UpdateTagRequest{Color: &color}, `{"color":"112233"}`},
+		{"name and color", UpdateTagRequest{Name: &name, Color: &color}, `{"color":"112233","name":"Renamed"}`},
+		{"clear color", UpdateTagRequest{ClearColor: true}, `{"color":null}`},
+		{"clear color wins over color", UpdateTagRequest{Color: &color, ClearColor: true}, `{"color":null}`},
+		{"empty leaves all unchanged", UpdateTagRequest{}, `{}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := json.Marshal(tc.req)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if string(out) != tc.want {
+				t.Errorf("got %s, want %s", out, tc.want)
+			}
+		})
+	}
 }
 
 func TestWebhookDispatchListParamsSetDefaults(t *testing.T) {

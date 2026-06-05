@@ -16,6 +16,8 @@ type PaginationMeta struct {
 }
 
 // ListParams covers the query parameters supported by paginated list endpoints.
+// Not every field applies to every endpoint; resources send only the parameters
+// the corresponding endpoint documents.
 type ListParams struct {
 	Page    int
 	PerPage int
@@ -23,6 +25,10 @@ type ListParams struct {
 	Sort    string
 	Status  string
 	Method  string
+	// Tags filters by tag ID with AND semantics (a record must carry all of
+	// them). Sent as a comma-separated list. Honoured by the documents and
+	// templates list endpoints; ignored elsewhere.
+	Tags []string
 }
 
 // SetDefaults normalises Page/PerPage and clamps PerPage to the API maximum.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
@@ -49,6 +50,9 @@ func (r *DocumentResource) List(ctx context.Context, accountID string, params *m
 	if params != nil {
 		req.WithQuery("status", params.Status)
 		req.WithQuery("method", params.Method)
+		if len(params.Tags) > 0 {
+			req.WithQuery("tags", strings.Join(params.Tags, ","))
+		}
 	}
 
 	resp, err := req.Execute(ctx, &docs)

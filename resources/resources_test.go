@@ -59,6 +59,66 @@ func TestDocumentsList(t *testing.T) {
 	}
 }
 
+func TestDocumentsListEncodesTags(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("tags"); got != "t1,t2" {
+			t.Errorf("tags = %q, want t1,t2", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	docs := NewDocumentResource(httpClient, "acc1")
+	if _, err := docs.List(context.Background(), "", &models.ListParams{Tags: []string{"t1", "t2"}}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+}
+
+func TestDocumentsListOmitsEmptyTags(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.URL.Query()["tags"]; ok {
+			t.Errorf("tags param should be absent, got %q", r.URL.Query().Get("tags"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	docs := NewDocumentResource(httpClient, "acc1")
+	if _, err := docs.List(context.Background(), "", &models.ListParams{}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+}
+
+func TestTemplatesListEncodesTags(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("tags"); got != "t1,t2" {
+			t.Errorf("tags = %q, want t1,t2", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	r := NewTemplateResource(httpClient, "acc1")
+	if _, err := r.List(context.Background(), "", &models.ListParams{Tags: []string{"t1", "t2"}}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+}
+
+func TestWebhooksListDispatchesOmitsEmptyEvent(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.URL.Query()["event"]; ok {
+			t.Errorf("event param should be absent when unset, got %q", r.URL.Query().Get("event"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	r := NewWebhookResource(httpClient, "acc1")
+	if _, err := r.ListDispatches(context.Background(), "", &models.WebhookDispatchListParams{PerPage: 5}); err != nil {
+		t.Fatalf("ListDispatches: %v", err)
+	}
+}
+
 func TestSignerCreateUsesDefaultAccount(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/accounts/acc1/signers" {
