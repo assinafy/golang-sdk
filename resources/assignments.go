@@ -19,6 +19,26 @@ func NewAssignmentResource(httpClient *internal.HTTPClient) *AssignmentResource 
 	return &AssignmentResource{http: httpClient}
 }
 
+// List returns a page of assignments for the authenticated user's current
+// account, paginated via the X-Pagination-* response headers. Only the page and
+// per-page parameters of params are used.
+//
+// This endpoint resolves the account from the caller's session, so it requires a
+// bearer-token login (which selects a current account). Calling it with only an
+// API key returns a 400 "account context required" error in the sandbox.
+// GET /assignments.
+func (r *AssignmentResource) List(ctx context.Context, params *models.ListParams) (*models.PaginatedResult[models.Assignment], error) {
+	var out []models.Assignment
+	req := r.http.NewRequest(http.MethodGet, "/assignments")
+	applyListParams(req, params)
+
+	resp, err := req.Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return paginated(out, resp), nil
+}
+
 // Create creates an assignment (virtual or collect).
 // POST /documents/{document_id}/assignments.
 func (r *AssignmentResource) Create(ctx context.Context, documentID string, body *models.CreateAssignmentRequest) (*models.Assignment, error) {

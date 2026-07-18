@@ -27,7 +27,9 @@ func integrationClient(t *testing.T) (*Client, string) {
 		APIKey:    apiKey,
 		AccountID: accountID,
 		BaseURL:   os.Getenv("ASSINAFY_BASE_URL"),
-		Timeout:   30 * time.Second,
+		// 60s tolerates cold-start latency on the first request to the sandbox
+		// (Cloudflare/origin warm-up) that occasionally exceeds a tighter timeout.
+		Timeout: 60 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)

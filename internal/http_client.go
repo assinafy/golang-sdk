@@ -46,6 +46,10 @@ func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPCl
 	}
 }
 
+// BaseURL returns the API base URL the client was constructed with (with any
+// trailing slash trimmed). It is used to build browser-facing URLs.
+func (c *HTTPClient) BaseURL() string { return c.baseURL }
+
 // Request is a fluent builder for outgoing API requests.
 type Request struct {
 	client  *HTTPClient

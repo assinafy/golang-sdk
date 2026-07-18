@@ -5,9 +5,12 @@ package models
 // field is populated in every context — for example is_password_set is emitted
 // for webhook subjects but not by the login endpoints.
 type User struct {
-	ID               string     `json:"id"`
-	Name             string     `json:"name"`
-	Email            string     `json:"email"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	// Telephone and GovernmentID are nullable in the API; a JSON null decodes to
+	// the empty string. They are kept as string (not *string) for backward
+	// compatibility with the v1.0.0 public API.
 	Telephone        string     `json:"telephone,omitempty"`
 	GovernmentID     string     `json:"government_id,omitempty"`
 	IsEmailVerified  bool       `json:"is_email_verified"`

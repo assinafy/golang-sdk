@@ -40,15 +40,16 @@ type ListFieldDefinitionsParams struct {
 }
 
 // ValidateFieldRequest is the body for POST /accounts/{id}/fields/{fid}/validate.
+// Value accepts any JSON value (string, number, boolean, …) per the spec.
 type ValidateFieldRequest struct {
-	Value string `json:"value"`
+	Value any `json:"value"`
 }
 
 // ValidateMultipleFieldsRequest is one entry of the body for
-// POST /accounts/{id}/fields/validate-multiple.
+// POST /accounts/{id}/fields/validate-multiple. Value accepts any JSON value.
 type ValidateMultipleFieldsRequest struct {
 	FieldID string `json:"field_id"`
-	Value   string `json:"value"`
+	Value   any    `json:"value"`
 }
 
 // FieldValidationResult is a single validation result entry.

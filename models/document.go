@@ -26,7 +26,7 @@ const (
 type Document struct {
 	Resource         string             `json:"resource,omitempty"`
 	ID               string             `json:"id"`
-	AccountID        string             `json:"account_id,omitempty"`
+	AccountID        string             `json:"account_id"`
 	TemplateID       *string            `json:"template_id,omitempty"`
 	Name             string             `json:"name"`
 	Status           DocumentStatus     `json:"status"`
@@ -36,8 +36,8 @@ type Document struct {
 	DeclineReason    *string            `json:"decline_reason,omitempty"`
 	DeclinedBy       *Signer            `json:"declined_by,omitempty"`
 	Tags             []Tag              `json:"tags,omitempty"`
-	CreatedAt        Timestamp          `json:"created_at,omitempty"`
-	UpdatedAt        Timestamp          `json:"updated_at,omitempty"`
+	CreatedAt        Timestamp          `json:"created_at"`
+	UpdatedAt        Timestamp          `json:"updated_at"`
 	Assignment       *Assignment        `json:"assignment,omitempty"`
 	Pages            []DocumentPage     `json:"pages,omitempty"`
 	Activities       []DocumentActivity `json:"activities,omitempty"`
@@ -78,6 +78,11 @@ type DocumentActivity struct {
 type RequestOrigin struct {
 	IP        string `json:"ip"`
 	UserAgent string `json:"user-agent"`
+}
+
+// RenameDocumentRequest is the body for PATCH /documents/{document_id}.
+type RenameDocumentRequest struct {
+	Name string `json:"name"`
 }
 
 // CreateDocumentFromTemplateOptions is the body for

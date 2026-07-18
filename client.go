@@ -39,6 +39,7 @@ const (
 type Client struct {
 	accountID string
 
+	Accounts        *resources.AccountResource
 	Documents       *resources.DocumentResource
 	Signers         *resources.SignerResource
 	SignerDocuments *resources.SignerDocumentResource
@@ -81,6 +82,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 
 	return &Client{
 		accountID:       opts.AccountID,
+		Accounts:        resources.NewAccountResource(httpClient, opts.AccountID),
 		Documents:       resources.NewDocumentResource(httpClient, opts.AccountID),
 		Signers:         resources.NewSignerResource(httpClient, opts.AccountID),
 		SignerDocuments: resources.NewSignerDocumentResource(httpClient),

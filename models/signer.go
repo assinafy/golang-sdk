@@ -9,9 +9,11 @@ type Signer struct {
 	Email               *string `json:"email,omitempty"`
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
 	HasAcceptedTerms    bool    `json:"has_accepted_terms"`
-	// HasSignature and HasInitial are returned only by GET /signers/self.
-	HasSignature bool `json:"has_signature,omitempty"`
-	HasInitial   bool `json:"has_initial,omitempty"`
+	// HasSignature, HasInitial, and IsSignatureReusable are returned only by
+	// GET /signers/self.
+	HasSignature        bool `json:"has_signature,omitempty"`
+	HasInitial          bool `json:"has_initial,omitempty"`
+	IsSignatureReusable bool `json:"is_signature_reusable,omitempty"`
 	// The following fields are populated only when the signer is embedded in an
 	// assignment (the Assignment Signer object).
 	VerificationMethod  *string              `json:"verification_method,omitempty"`
@@ -48,8 +50,14 @@ type UpdateSignerRequest struct {
 }
 
 // ConfirmSignerDataRequest is the body for PUT /documents/{id}/signers/confirm-data.
+// Every field is optional; a nil field is not sent and leaves the signer's
+// current value unchanged. The OpenAPI reference documents full_name, email, and
+// government_id, while the live API also accepts whatsapp_phone_number and
+// has_accepted_terms, so all five are exposed here.
 type ConfirmSignerDataRequest struct {
+	FullName            *string `json:"full_name,omitempty"`
 	Email               *string `json:"email,omitempty"`
+	GovernmentID        *string `json:"government_id,omitempty"`
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
 	HasAcceptedTerms    *bool   `json:"has_accepted_terms,omitempty"`
 }

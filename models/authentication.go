@@ -13,6 +13,14 @@ type SocialLoginRequest struct {
 	HasAcceptedTerms bool   `json:"has_accepted_terms"`
 }
 
+// LinkSocialLoginRequest is the body for POST /auth/link-social-login.
+type LinkSocialLoginRequest struct {
+	// Provider is the social provider key (currently only "google").
+	Provider string `json:"provider"`
+	// Token is the token issued by the provider.
+	Token string `json:"token"`
+}
+
 // AuthenticationResult is returned by login endpoints.
 type AuthenticationResult struct {
 	AccessToken string              `json:"access_token"`
