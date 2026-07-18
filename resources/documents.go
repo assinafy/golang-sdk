@@ -62,6 +62,31 @@ func (r *DocumentResource) List(ctx context.Context, accountID string, params *m
 	return paginated(docs, resp), nil
 }
 
+// Search returns the workspace documents matching the search term, ordered by
+// relevance and paginated via the X-Pagination-* response headers. It accepts
+// the same status/method/tag filters as List.
+// GET /accounts/{account_id}/documents/search.
+func (r *DocumentResource) Search(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+
+	var docs []models.Document
+	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/documents/search")
+	applyListParams(req, params)
+	if params != nil {
+		req.WithQuery("status", params.Status)
+		req.WithQuery("method", params.Method)
+		if len(params.Tags) > 0 {
+			req.WithQuery("tags", strings.Join(params.Tags, ","))
+		}
+	}
+
+	resp, err := req.Execute(ctx, &docs)
+	if err != nil {
+		return nil, err
+	}
+	return paginated(docs, resp), nil
+}
+
 // Get retrieves a single document. GET /documents/{document_id}.
 func (r *DocumentResource) Get(ctx context.Context, documentID string) (*models.Document, error) {
 	var doc models.Document
@@ -76,6 +101,24 @@ func (r *DocumentResource) Get(ctx context.Context, documentID string) (*models.
 func (r *DocumentResource) Delete(ctx context.Context, documentID string) error {
 	_, err := r.http.NewRequest(http.MethodDelete, "/documents/"+url.PathEscape(documentID)).Execute(ctx, nil)
 	return err
+}
+
+// Rename changes a document's name and returns the updated document. Renaming is
+// only allowed before the signature process starts (while the document is in
+// uploaded or metadata_ready status with no signers); once signing has begun or
+// the document is certificated the API rejects the change with a 400. The name
+// is normalized server-side (diacritics removed, unsupported characters replaced
+// with dashes).
+// PATCH /documents/{document_id}.
+func (r *DocumentResource) Rename(ctx context.Context, documentID, name string) (*models.Document, error) {
+	var out models.Document
+	path := "/documents/" + url.PathEscape(documentID)
+	if _, err := r.http.NewRequest(http.MethodPatch, path).
+		WithBody(models.RenameDocumentRequest{Name: name}).
+		Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Activities lists the audit-trail entries on a document.

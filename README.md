@@ -4,7 +4,7 @@
 
 Go client for the [Assinafy API](https://api.assinafy.com.br/v1/docs).
 
-The SDK covers every documented Assinafy REST resource: authentication, documents (including public document flows and document tags), signers (including signer-facing flows), assignments, field definitions, templates, tags, and webhooks.
+The SDK covers the documented Assinafy REST resources: authentication, accounts, documents (including search, public document flows, and document tags), signers (including signer-facing flows), assignments, field definitions, templates, tags, and webhooks.
 
 ## Requirements
 
@@ -85,9 +85,18 @@ auth, err := client.Authentication.Login(ctx, &models.LoginRequest{
     Email: "user@example.com", Password: "secret",
 })
 
+// Accounts (non-destructive: list, get, update, theme, logo download)
+accounts, err := client.Accounts.List(ctx)
+account, err := client.Accounts.Get(ctx, "")
+theme, err := client.Accounts.GetTheme(ctx, "")
+name := "Acme Inc."
+account, err = client.Accounts.Update(ctx, "", &models.UpdateAccountRequest{Name: &name})
+
 // Documents
 doc, err := client.Documents.Upload(ctx, "", pdfBytes, "contract.pdf", nil)
 docs, err := client.Documents.List(ctx, "", &models.ListParams{Search: "contract"})
+hits, err := client.Documents.Search(ctx, "", &models.ListParams{Search: "invoice"})
+renamed, err := client.Documents.Rename(ctx, doc.ID, "final-contract.pdf")
 // Filter by tag IDs (AND semantics — only documents carrying every listed tag):
 tagged, err := client.Documents.List(ctx, "", &models.ListParams{Tags: []string{tagID1, tagID2}})
 verified, err := client.Documents.Verify(ctx, "SIGNATURE_HASH")
@@ -105,6 +114,9 @@ assignment, err := client.Assignments.Create(ctx, doc.ID, &models.CreateAssignme
         {ID: signer.ID, VerificationMethod: "Email", NotificationMethods: []string{"Email"}},
     },
 })
+// List the current account's assignments (requires a user-token session; an
+// API key returns 400 because it carries no current-account context):
+page, err := client.Assignments.List(ctx, &models.ListParams{PerPage: 20})
 
 // Templates
 templates, err := client.Templates.List(ctx, "", &models.ListParams{Search: "Service"})
@@ -147,20 +159,26 @@ Every endpoint documented at <https://api.assinafy.com.br/v1/docs> is exposed by
 
 | Area | Endpoints | SDK |
 | --- | --- | --- |
-| Authentication | `POST /login`, `POST /authentication/social-login`, `POST/GET/DELETE /users/api-keys`, `PUT /authentication/{change,request,reset}-password` | `client.Authentication` |
+| Authentication | `POST /login`, `POST /authentication/social-login`, `POST /auth/link-social-login`, `POST/GET/DELETE /users/api-keys`, `PUT /authentication/{change,request,reset}-password` | `client.Authentication` |
+| Accounts | `GET /accounts`, `GET/PUT /accounts/{id}`, `GET /accounts/{id}/theme`, `GET /accounts/{id}/logo` | `client.Accounts` |
 | Signers (workspace) | `POST/GET /accounts/{id}/signers`, `GET/PUT/DELETE /accounts/{id}/signers/{sid}` | `client.Signers` |
 | Signers (self-service) | `GET /signers/self`, `PUT /signers/accept-terms`, `POST /verify`, `PUT /documents/{id}/signers/confirm-data`, `POST/GET /signature[/{type}]` | `client.Signers` |
-| Documents | `POST/GET /accounts/{id}/documents`, `GET/DELETE /documents/{id}`, `GET /documents/{id}/{thumbnail,download/{art},pages/{pid}/download}`, `GET /documents/{hash}/verify`, `GET /documents/{id}/activities`, `GET /documents/statuses`, `POST /accounts/{id}/templates/{tid}/documents[/estimate-cost]` | `client.Documents` |
+| Documents | `POST/GET /accounts/{id}/documents`, `GET /accounts/{id}/documents/search`, `GET/DELETE/PATCH /documents/{id}`, `GET /documents/{id}/{thumbnail,download/{art},pages/{pid}/download}`, `GET /documents/{hash}/verify`, `GET /documents/{id}/activities`, `GET /documents/statuses`, `POST /accounts/{id}/templates/{tid}/documents[/estimate-cost]` | `client.Documents` |
 | Document tags | `GET/PUT/POST /accounts/{id}/documents/{did}/tags`, `DELETE /accounts/{id}/documents/{did}/tags/{tid}` | `client.Documents.{ListTags,ReplaceTags,AppendTags,DetachTag}` |
 | Public documents | `GET /public/documents/{id}`, `PUT /public/documents/{id}/send-token` | `client.PublicDocuments` |
 | Templates | `GET /accounts/{id}/templates`, `GET /accounts/{id}/templates/{tid}` | `client.Templates` |
 | Tags | `GET/POST /accounts/{id}/tags`, `PUT/DELETE /accounts/{id}/tags/{tid}` | `client.Tags` |
-| Assignments | `POST /documents/{id}/assignments[/estimate-cost]`, `PUT /documents/{id}/assignments/{aid}/{reset-expiration,reject}`, `POST /documents/{id}/assignments/{aid}`, `PUT /documents/{id}/assignments/{aid}/signers/{sid}/resend`, `POST .../estimate-resend-cost`, `GET .../whatsapp-notifications`, `GET /sign` | `client.Assignments` |
-| Signer documents | `GET /signers/{sid}/document[s]`, `PUT /signers/documents/{sign,decline}-multiple`, `GET /signers/{sid}/documents/{id}/download/{art}` | `client.SignerDocuments` |
+| Assignments | `GET /assignments`, `POST /documents/{id}/assignments[/estimate-cost]`, `PUT /documents/{id}/assignments/{aid}/{reset-expiration,reject}`, `POST /documents/{id}/assignments/{aid}`, `PUT /documents/{id}/assignments/{aid}/signers/{sid}/resend`, `POST .../estimate-resend-cost`, `GET .../whatsapp-notifications`, `GET /sign` | `client.Assignments` |
+| Signer documents | `GET /signers/{sid}/document[s]`, `GET /signers/{sid}/documents/search`, `PUT /signers/documents/{sign,decline}-multiple`, `GET /signers/{sid}/documents/{id}/download/{art}` | `client.SignerDocuments` |
 | Field definitions | `POST/GET /accounts/{id}/fields`, `GET/PUT/DELETE /accounts/{id}/fields/{fid}`, `POST .../validate[-multiple]`, `GET /field-types` | `client.Fields` |
 | Webhooks | `GET/PUT /accounts/{id}/webhooks/subscriptions`, `PUT /accounts/{id}/webhooks/inactivate`, `GET /accounts/{id}/webhooks`, `POST /accounts/{id}/webhooks/{did}/retry`, `GET /webhooks/event-types` | `client.Webhooks` |
 
 Subscriptions are turned off with `client.Webhooks.Inactivate`. The `DELETE /accounts/{id}/webhooks/subscriptions` route mentioned in passing by the docs is not implemented by the live API (it returns 404), so the SDK does not expose it.
+
+**Intentionally excluded.** A few documented operations are deliberately not exposed:
+
+- **Destructive account administration** — `POST /accounts` (create), `DELETE /accounts/{id}` (delete), and account logo upload/removal (`POST/DELETE /accounts/{id}/logo`) are production-only operations that can create or destroy whole workspaces. The SDK exposes only the non-destructive account endpoints above.
+- **Browser-only OAuth redirects** — `GET /auth/authenticate` (302 to the provider) and `GET /login-callback` (front-end token callback) are meant for a browser, not a backend. Instead of an unusable HTTP method, `client.Authentication.SocialLoginURL(provider)` builds the authorize URL to open in a browser.
 
 ## Development
 
@@ -175,7 +193,9 @@ CI runs the same checks on every push and pull request via GitHub Actions (`acti
 
 ### Integration tests
 
-Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints, full create/get/update/delete lifecycles for signers, tags, and field definitions, a document upload + estimate-cost round trip, artifact/page downloads, signature-hash verification, the document-tag attach/detach flow, and the webhook subscription update/inactivate lifecycle.
+Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints, full create/get/update/delete lifecycles for signers, tags, and field definitions, the account list/get/theme/logo reads plus a non-destructive account-update round trip, a document upload + estimate-cost round trip, the document search and rename endpoints, artifact/page downloads, signature-hash verification, the document-tag attach/detach flow, the assignments list, and the webhook subscription update/inactivate lifecycle.
+
+Signer-facing endpoints that require a live signer access code (`AcceptTerms`, `VerifyEmail`, `ConfirmData`, signature upload/download, signer-document search) and the social-login link are exercised by unit tests, since a valid access code only exists inside a real signing session.
 
 | Variable | Purpose |
 | --- | --- |

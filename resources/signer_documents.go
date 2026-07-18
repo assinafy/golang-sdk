@@ -51,6 +51,22 @@ func (r *SignerDocumentResource) List(ctx context.Context, signerID, signerAcces
 	return paginated(out, resp), nil
 }
 
+// Search returns the documents accessible to a signer that match
+// params.Search, paginated via the X-Pagination-* response headers.
+// GET /signers/{signer_id}/documents/search.
+func (r *SignerDocumentResource) Search(ctx context.Context, signerID, signerAccessCode string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
+	var out []models.Document
+	req := r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/documents/search").
+		WithQuery("signer-access-code", signerAccessCode)
+	applyListParams(req, params)
+
+	resp, err := req.Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return paginated(out, resp), nil
+}
+
 // SignMultiple batch-signs documents for the signer.
 // PUT /signers/documents/sign-multiple.
 func (r *SignerDocumentResource) SignMultiple(ctx context.Context, signerAccessCode string, documentIDs []string) error {

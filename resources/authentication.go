@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
@@ -38,6 +39,28 @@ func (r *AuthenticationResource) SocialLogin(ctx context.Context, body *models.S
 		return nil, err
 	}
 	return &out, nil
+}
+
+// SocialLoginURL returns the browser URL that starts the OAuth flow with a
+// social provider (e.g. "google"). GET /auth/authenticate is a 302 redirect to
+// the provider's consent screen, so it is meant to be opened in a user's
+// browser rather than called from a backend; the SDK only builds the URL. After
+// the user authorizes, the provider redirects to the front-end /login-callback,
+// which receives the resulting access token.
+func (r *AuthenticationResource) SocialLoginURL(provider string) string {
+	u := r.http.BaseURL() + "/auth/authenticate"
+	if provider != "" {
+		u += "?authclient=" + url.QueryEscape(provider)
+	}
+	return u
+}
+
+// LinkSocialLogin links a social-login provider account to the currently
+// authenticated user. On success the API returns an empty success envelope.
+// POST /auth/link-social-login.
+func (r *AuthenticationResource) LinkSocialLogin(ctx context.Context, body *models.LinkSocialLoginRequest) error {
+	_, err := r.http.NewRequest(http.MethodPost, "/auth/link-social-login").WithBody(body).Execute(ctx, nil)
+	return err
 }
 
 // CreateAPIKey generates a new API key.

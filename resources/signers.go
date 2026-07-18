@@ -102,13 +102,14 @@ func (r *SignerResource) GetSelf(ctx context.Context, signerAccessCode string) (
 	return &out, nil
 }
 
-// AcceptTerms accepts terms of use for a signer (signer-facing flow).
+// AcceptTerms accepts terms of use for a signer (signer-facing flow). The signer
+// credential is supplied as the signer-access-code query parameter, matching the
+// signerAccessCode security scheme and the other signer-facing methods.
 // PUT /signers/accept-terms.
 func (r *SignerResource) AcceptTerms(ctx context.Context, signerAccessCode string) (*models.Signer, error) {
 	var out models.Signer
-	body := map[string]string{"signer-access-code": signerAccessCode}
 	_, err := r.http.NewRequest(http.MethodPut, "/signers/accept-terms").
-		WithBody(body).
+		WithQuery("signer-access-code", signerAccessCode).
 		Execute(ctx, &out)
 	if err != nil {
 		return nil, err
@@ -116,14 +117,16 @@ func (r *SignerResource) AcceptTerms(ctx context.Context, signerAccessCode strin
 	return &out, nil
 }
 
-// VerifyEmail verifies an emailed access code (signer-facing flow).
+// VerifyEmail verifies an emailed access code (signer-facing flow). The signer
+// credential is supplied as the signer-access-code query parameter; only the
+// verification-code travels in the body.
 // POST /verify.
 func (r *SignerResource) VerifyEmail(ctx context.Context, signerAccessCode, verificationCode string) error {
-	body := map[string]string{
-		"signer-access-code": signerAccessCode,
-		"verification-code":  verificationCode,
-	}
-	_, err := r.http.NewRequest(http.MethodPost, "/verify").WithBody(body).Execute(ctx, nil)
+	body := map[string]string{"verification-code": verificationCode}
+	_, err := r.http.NewRequest(http.MethodPost, "/verify").
+		WithQuery("signer-access-code", signerAccessCode).
+		WithBody(body).
+		Execute(ctx, nil)
 	return err
 }
 
