@@ -37,6 +37,20 @@ func TestWebhookVerifierVerify(t *testing.T) {
 			t.Error("expected verification to fail for tampered payload")
 		}
 	})
+
+	t.Run("empty secret", func(t *testing.T) {
+		empty := NewWebhookVerifier("")
+		if empty.Verify(payload, sign(t, "", payload)) {
+			t.Error("empty secret must not verify payloads")
+		}
+	})
+
+	t.Run("nil verifier", func(t *testing.T) {
+		var nilVerifier *WebhookVerifier
+		if nilVerifier.Verify(payload, "signature") {
+			t.Error("nil verifier must not verify payloads")
+		}
+	})
 }
 
 func TestWebhookVerifierExtractEvent(t *testing.T) {

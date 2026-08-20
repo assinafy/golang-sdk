@@ -32,7 +32,11 @@ func (t *Timestamp) UnmarshalJSON(data []byte) error {
 		*t = Timestamp(s)
 		return nil
 	}
-	*t = Timestamp(string(data))
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return errors.New("assinafy: timestamp must be a JSON string, number, or null")
+	}
+	*t = Timestamp(number.String())
 	return nil
 }
 
@@ -43,11 +47,11 @@ func (t Timestamp) MarshalJSON() ([]byte, error) {
 
 // Payload is a forgiving map[string]any that accepts the empty-array form
 // (`[]`) the Assinafy API emits when an activity or webhook dispatch carries
-// no parameters. JSON null is also accepted and decoded into an empty map.
+// no parameters. JSON null and an empty array decode to a nil map.
 type Payload map[string]any
 
 // UnmarshalJSON decodes an object as a map, and `null` or an empty array as
-// an empty map. A non-empty JSON array is treated as a decoding error so
+// a nil map. A non-empty JSON array is treated as a decoding error so
 // surprising upstream changes surface instead of being silently dropped.
 func (p *Payload) UnmarshalJSON(data []byte) error {
 	trimmed := bytes.TrimSpace(data)
@@ -74,7 +78,7 @@ func (p *Payload) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON emits the payload as a JSON object, or `null` when empty.
+// MarshalJSON emits the payload as a JSON object, or `null` when the map is nil.
 func (p Payload) MarshalJSON() ([]byte, error) {
 	if p == nil {
 		return []byte("null"), nil

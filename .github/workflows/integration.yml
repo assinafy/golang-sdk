@@ -1,0 +1,60 @@
+name: Sandbox integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_assignment_tests:
+        description: Create a temporary account and send assignment emails
+        required: false
+        type: boolean
+        default: false
+      run_account_admin_tests:
+        description: Create and delete a temporary sandbox account
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-integration
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    name: Assinafy sandbox
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: sandbox
+    env:
+      ASSINAFY_API_KEY: ${{ secrets.ASSINAFY_SANDBOX_API_KEY }}
+      ASSINAFY_ACCOUNT_ID: ${{ secrets.ASSINAFY_SANDBOX_ACCOUNT_ID }}
+      ASSINAFY_BASE_URL: https://sandbox.assinafy.com.br/v1
+      ASSINAFY_RUN_INTEGRATION_TESTS: "1"
+      ASSINAFY_ALLOW_MISSING_DOCUMENTED_ROUTES: "1"
+      ASSINAFY_RUN_ASSIGNMENT_TESTS: ${{ inputs.run_assignment_tests && '1' || '0' }}
+      ASSINAFY_RUN_ACCOUNT_ADMIN_TESTS: ${{ inputs.run_account_admin_tests && '1' || '0' }}
+      GOFLAGS: -mod=readonly
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod
+
+      - name: Validate sandbox secrets
+        shell: bash
+        run: |
+          if [[ -z "$ASSINAFY_API_KEY" || -z "$ASSINAFY_ACCOUNT_ID" ]]; then
+            echo "::error::Configure ASSINAFY_SANDBOX_API_KEY and ASSINAFY_SANDBOX_ACCOUNT_ID in the sandbox environment."
+            exit 1
+          fi
+
+      - name: Run sandbox integration tests
+        run: go test -race -count=1 -v -run '^TestIntegration' .

@@ -7,30 +7,31 @@ import (
 	"testing"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/models"
 )
 
 // uploadReadyDoc uploads the minimal PDF and polls until the document reaches
-// metadata_ready, registering a best-effort delete cleanup. It fails the test
-// if the document never becomes ready.
-func uploadReadyDoc(t *testing.T, c *Client, ctx context.Context) *models.Document {
+// metadata_ready. It optionally registers a delete cleanup; a disposable-account
+// caller can instead rely on account cleanup for active signing flows.
+func uploadReadyDoc(t *testing.T, c *Client, ctx context.Context, accountID string, cleanupDocument bool) *models.Document {
 	t.Helper()
-	doc, err := c.Documents.Upload(ctx, "", minimalPDF(), "go-sdk-audit.pdf", nil)
+	doc, err := c.Documents.Upload(ctx, accountID, minimalPDF(), "go-sdk-audit.pdf", nil)
 	if err != nil {
 		t.Fatalf("Documents.Upload: %v", err)
 	}
-	t.Cleanup(func() {
-		cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		for i := 0; i < 8; i++ {
-			if err := c.Documents.Delete(cleanCtx, doc.ID); err == nil {
-				return
+	if cleanupDocument {
+		t.Cleanup(func() {
+			cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			for i := 0; i < 8; i++ {
+				if err := c.Documents.Delete(cleanCtx, doc.ID); err == nil {
+					return
+				}
+				time.Sleep(2 * time.Second)
 			}
-			time.Sleep(2 * time.Second)
-		}
-		t.Logf("cleanup: could not delete %s within timeout", doc.ID)
-	})
+			t.Errorf("cleanup: could not delete %s within timeout", doc.ID)
+		})
+	}
 
 	for i := 0; i < 15; i++ {
 		got, err := c.Documents.Get(ctx, doc.ID)
@@ -53,7 +54,7 @@ func TestIntegrationDocumentDownloads(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	doc := uploadReadyDoc(t, c, ctx)
+	doc := uploadReadyDoc(t, c, ctx, "", true)
 
 	original, err := c.Documents.Download(ctx, doc.ID, "original")
 	if err != nil {
@@ -72,6 +73,20 @@ func TestIntegrationDocumentDownloads(t *testing.T) {
 	}
 	if len(page) == 0 {
 		t.Error("empty page download")
+	}
+	thumbnail, err := c.Documents.Thumbnail(ctx, doc.ID)
+	if err != nil {
+		t.Fatalf("Documents.Thumbnail: %v", err)
+	}
+	if len(thumbnail) == 0 {
+		t.Error("empty thumbnail download")
+	}
+	public, err := c.PublicDocuments.GetDocument(ctx, doc.ID)
+	if err != nil {
+		t.Fatalf("PublicDocuments.GetDocument: %v", err)
+	}
+	if public.ID != doc.ID {
+		t.Errorf("PublicDocuments.GetDocument ID = %q, want %q", public.ID, doc.ID)
 	}
 }
 
@@ -94,19 +109,27 @@ func TestIntegrationDocumentVerifyUnknownHash(t *testing.T) {
 	}
 }
 
-// TestIntegrationTemplateGetUnknown confirms the single-template route exists and
-// returns a 404 APIError for an unknown template.
-func TestIntegrationTemplateGetUnknown(t *testing.T) {
+// TestIntegrationTemplateGet exercises the compatibility route using a real
+// template returned by the sandbox. This route is not in the public OpenAPI
+// document, so a fabricated-ID 404 is not sufficient evidence that it works.
+func TestIntegrationTemplateGet(t *testing.T) {
 	c, _ := integrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := c.Templates.Get(ctx, "", "000000000000000000000000")
-	if err == nil {
-		t.Fatal("expected error for unknown template")
+	page, err := c.Templates.List(ctx, "", &models.ListParams{PerPage: 1})
+	if err != nil {
+		t.Fatalf("Templates.List: %v", err)
 	}
-	if !sdkerrors.IsStatusCode(err, 404) {
-		t.Errorf("expected 404 APIError, got %v", err)
+	if len(page.Data) == 0 {
+		t.Skip("workspace has no template with which to verify Templates.Get")
+	}
+	template, err := c.Templates.Get(ctx, "", page.Data[0].ID)
+	if err != nil {
+		t.Fatalf("Templates.Get: %v", err)
+	}
+	if template.ID != page.Data[0].ID {
+		t.Errorf("Templates.Get ID = %q, want %q", template.ID, page.Data[0].ID)
 	}
 }
 
@@ -143,20 +166,19 @@ func TestIntegrationWebhookSubscriptionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubscription: %v", err)
 	}
+	if original.URL == nil || original.Email == nil || *original.URL == "" || *original.Email == "" {
+		t.Skip("webhook subscription has no losslessly restorable URL/email")
+	}
 	// Restore the original configuration when the test finishes.
 	t.Cleanup(func() {
 		restore := &models.UpdateWebhookSubscriptionRequest{
 			Events:   original.Events,
-			IsActive: false,
-		}
-		if original.URL != nil {
-			restore.URL = *original.URL
-		}
-		if original.Email != nil {
-			restore.Email = *original.Email
+			IsActive: original.IsActive,
+			URL:      *original.URL,
+			Email:    *original.Email,
 		}
 		if _, err := c.Webhooks.UpdateSubscription(context.Background(), "", restore); err != nil {
-			t.Logf("cleanup restore subscription: %v", err)
+			t.Errorf("cleanup restore subscription: %v", err)
 		}
 	})
 
@@ -190,56 +212,49 @@ func TestIntegrationWebhookSubscriptionLifecycle(t *testing.T) {
 	}
 }
 
-// findOrCreateSigner returns the workspace signer with the given email, creating
-// it (and registering a delete cleanup) only when it does not already exist.
-// Signer emails are unique per workspace, so reuse avoids a 400 conflict.
-func findOrCreateSigner(t *testing.T, c *Client, ctx context.Context, email string) *models.Signer {
-	t.Helper()
-	page, err := c.Signers.List(ctx, "", &models.ListParams{Search: email, PerPage: 25})
-	if err != nil {
-		t.Fatalf("Signers.List(%s): %v", email, err)
-	}
-	for i := range page.Data {
-		if page.Data[i].Email != nil && *page.Data[i].Email == email {
-			return &page.Data[i]
-		}
-	}
-
-	e := email
-	signer, err := c.Signers.Create(ctx, "", &models.CreateSignerRequest{
-		FullName: "Go SDK Audit Signer",
-		Email:    &e,
-	})
-	if err != nil {
-		t.Fatalf("Signers.Create(%s): %v", email, err)
-	}
-	id := signer.ID
-	t.Cleanup(func() {
-		if err := c.Signers.Delete(context.Background(), "", id); err != nil {
-			t.Logf("cleanup Signers.Delete(%s): %v", id, err)
-		}
-	})
-	return signer
-}
-
 // TestIntegrationAssignmentLifecycle exercises the full virtual-assignment flow
-// against the live API: create signers, create the assignment, estimate a
+// in a disposable account: create signers, create the assignment, estimate a
 // resend, reset the expiration, and list WhatsApp notifications. It SENDS real
 // signature-request emails, so it is opt-in via ASSINAFY_RUN_ASSIGNMENT_TESTS=1.
 func TestIntegrationAssignmentLifecycle(t *testing.T) {
-	if os.Getenv("ASSINAFY_RUN_ASSIGNMENT_TESTS") == "" {
+	if os.Getenv("ASSINAFY_RUN_ASSIGNMENT_TESTS") != "1" {
 		t.Skip("set ASSINAFY_RUN_ASSIGNMENT_TESTS=1 to run the assignment flow (sends emails)")
 	}
 	c, _ := integrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	doc := uploadReadyDoc(t, c, ctx)
+	account, err := c.Accounts.Create(ctx, &models.CreateAccountRequest{
+		Name: "go-sdk-assignment-audit-" + time.Now().UTC().Format("20060102T150405.000000000Z"),
+	})
+	if err != nil {
+		t.Fatalf("Accounts.Create for assignment flow: %v", err)
+	}
+	deleted := false
+	t.Cleanup(func() {
+		if deleted {
+			return
+		}
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanCancel()
+		if err := c.Accounts.Delete(cleanCtx, account.ID, true); err != nil {
+			t.Errorf("cleanup Accounts.Delete(%s): %v", account.ID, err)
+		}
+	})
+
+	doc := uploadReadyDoc(t, c, ctx, account.ID, false)
 
 	emails := []string{"primary@example.test", "secondary@example.test"}
 	signerRefs := make([]models.SignerReference, 0, len(emails))
 	for _, email := range emails {
-		signer := findOrCreateSigner(t, c, ctx, email)
+		email := email
+		signer, err := c.Signers.Create(ctx, account.ID, &models.CreateSignerRequest{
+			FullName: "Go SDK Audit Signer",
+			Email:    &email,
+		})
+		if err != nil {
+			t.Fatalf("Signers.Create(%s): %v", email, err)
+		}
 		signerRefs = append(signerRefs, models.SignerReference{
 			ID:                  signer.ID,
 			VerificationMethod:  "Email",
@@ -259,6 +274,9 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 	if assignment.ID == "" {
 		t.Fatal("expected non-empty assignment id")
 	}
+	if err := c.PublicDocuments.SendTokenByEmail(ctx, doc.ID, emails[0]); err != nil {
+		t.Fatalf("PublicDocuments.SendTokenByEmail: %v", err)
+	}
 
 	estimate, err := c.Assignments.EstimateResendCost(ctx, doc.ID, assignment.ID, signerRefs[0].ID)
 	if err != nil {
@@ -267,13 +285,27 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 	if estimate.Total != 0 {
 		t.Errorf("expected 0-credit email resend estimate, got %v", estimate.Total)
 	}
+	if !estimate.HasSufficientCredits && !estimate.HasSufficientResources {
+		t.Errorf("resend estimate omitted its sufficiency result: %+v", estimate)
+	}
+	resent, err := c.Assignments.ResendNotification(ctx, doc.ID, assignment.ID, signerRefs[0].ID)
+	if err != nil {
+		t.Fatalf("Assignments.ResendNotification: %v", err)
+	}
+	if !resent.IsSent || resent.DocumentID != doc.ID || resent.SignerID != signerRefs[0].ID {
+		t.Errorf("Assignments.ResendNotification returned %+v", resent)
+	}
 
 	future := time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z")
-	if _, err := c.Assignments.ResetExpiration(ctx, doc.ID, assignment.ID, &future); err != nil {
-		t.Fatalf("Assignments.ResetExpiration: %v", err)
+	if _, err := c.Assignments.ResetExpirationWithRequest(ctx, doc.ID, assignment.ID, models.ResetAssignmentExpirationRequest{ExpiresAt: &future}); err != nil {
+		t.Fatalf("Assignments.ResetExpirationWithRequest: %v", err)
 	}
 
 	if _, err := c.Assignments.ListWhatsAppNotifications(ctx, doc.ID, assignment.ID); err != nil {
 		t.Fatalf("Assignments.ListWhatsAppNotifications: %v", err)
 	}
+	if err := c.Accounts.Delete(ctx, account.ID, true); err != nil {
+		t.Fatalf("Accounts.Delete assignment account: %v", err)
+	}
+	deleted = true
 }

@@ -35,6 +35,9 @@ func NewWebhookVerifier(secret string) *WebhookVerifier {
 // the signing contract is not documented by Assinafy, so treat this as
 // experimental until confirmed.
 func (v *WebhookVerifier) Verify(payload []byte, signature string) bool {
+	if v == nil || len(v.secret) == 0 || signature == "" {
+		return false
+	}
 	mac := hmac.New(sha256.New, v.secret)
 	mac.Write(payload)
 	expected := hex.EncodeToString(mac.Sum(nil))

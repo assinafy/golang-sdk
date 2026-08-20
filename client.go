@@ -17,11 +17,25 @@ package assinafy
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
 	"github.com/assinafy/golang-sdk/resources"
+)
+
+var (
+	// ErrInvalidBaseURL is returned when ClientOptions.BaseURL is not an
+	// absolute HTTP(S) URL suitable for API requests.
+	ErrInvalidBaseURL = errors.New("assinafy: BaseURL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	// ErrNoSigners is returned by UploadAndRequestSignatures when no signers are provided.
+	ErrNoSigners = errors.New("assinafy: at least one signer is required")
+	// ErrInvalidSigner is returned by UploadAndRequestSignatures when a signer
+	// has no name or no email/WhatsApp contact.
+	ErrInvalidSigner = errors.New("assinafy: signer must have a name and an email or WhatsApp contact")
 )
 
 const (
@@ -39,40 +53,62 @@ const (
 type Client struct {
 	accountID string
 
-	Accounts        *resources.AccountResource
-	Documents       *resources.DocumentResource
-	Signers         *resources.SignerResource
+	// Accounts provides authenticated workspace profile, theme, logo, and stats operations.
+	Accounts *resources.AccountResource
+	// Documents provides authenticated document upload, lifecycle, artifact, and tag operations.
+	Documents *resources.DocumentResource
+	// Signers provides account-scoped and signer-access-code signer operations.
+	Signers *resources.SignerResource
+	// SignerDocuments provides signer-access-code document and batch-signing operations.
 	SignerDocuments *resources.SignerDocumentResource
-	Assignments     *resources.AssignmentResource
-	Webhooks        *resources.WebhookResource
-	Templates       *resources.TemplateResource
-	Tags            *resources.TagResource
-	Fields          *resources.FieldResource
-	Authentication  *resources.AuthenticationResource
+	// Assignments provides authenticated assignment management and signer-facing signing operations.
+	Assignments *resources.AssignmentResource
+	// Webhooks provides authenticated subscription and delivery-history operations.
+	Webhooks *resources.WebhookResource
+	// Templates provides authenticated account-template read operations.
+	Templates *resources.TemplateResource
+	// Tags provides authenticated workspace-tag operations.
+	Tags *resources.TagResource
+	// Fields provides account field-definition and signer-facing validation operations.
+	Fields *resources.FieldResource
+	// Users provides authenticated current-user profile, statistics, and preference operations.
+	Users *resources.UserResource
+	// Authentication provides login, password, social-login, and API-key operations.
+	Authentication *resources.AuthenticationResource
+	// PublicDocuments provides unauthenticated public-document lookup and token delivery.
 	PublicDocuments *resources.PublicDocumentResource
 }
 
 // ClientOptions configures Client construction.
 type ClientOptions struct {
-	// APIKey is the permanent X-Api-Key credential. Takes precedence over Token.
+	// APIKey is the permanent credential sent in X-Api-Key. It takes precedence
+	// over Token when both are set; leave both empty for public or signer flows.
 	APIKey string
-	// Token is a JWT access token sent as Authorization: Bearer.
+	// Token is a JWT access token sent as Authorization: Bearer when APIKey is empty.
 	Token string
-	// AccountID is the default workspace identifier used for account-scoped resources
-	// when the per-call accountID argument is empty.
+	// AccountID is the optional default workspace UUID. Account-scoped methods use
+	// it when their accountID argument is empty; the API rejects an empty result.
 	AccountID string
-	// BaseURL overrides the API base URL. Defaults to DefaultBaseURL.
+	// BaseURL overrides the API root. It must be an absolute HTTP(S) URL without
+	// credentials, query, or fragment and defaults to DefaultBaseURL. Use
+	// SandboxBaseURL for sandbox calls.
 	BaseURL string
-	// Timeout is the per-request HTTP timeout. Defaults to 30 seconds.
+	// Timeout is the per-request HTTP timeout. Zero or negative values use 30 seconds.
 	Timeout time.Duration
 }
 
-// NewClient builds a new Client. Credentials are optional: unauthenticated
-// public document endpoints, login flows, and signer-access-code endpoints can
-// be used without an API key or access token.
+// NewClient validates opts and builds a concurrency-safe Client without making
+// a network request. Credentials are optional for public document, login, and
+// signer-access-code endpoints. It returns ErrInvalidBaseURL for an invalid API
+// root; authentication and account selection are otherwise validated per call.
 func NewClient(opts ClientOptions) (*Client, error) {
 	if opts.BaseURL == "" {
 		opts.BaseURL = DefaultBaseURL
+	}
+	baseURL, err := url.Parse(opts.BaseURL)
+	if err != nil || (baseURL.Scheme != "http" && baseURL.Scheme != "https") || baseURL.Host == "" ||
+		baseURL.User != nil || baseURL.RawQuery != "" || baseURL.ForceQuery || strings.Contains(opts.BaseURL, "#") {
+		return nil, ErrInvalidBaseURL
 	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = defaultTimeout
@@ -91,18 +127,22 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Templates:       resources.NewTemplateResource(httpClient, opts.AccountID),
 		Tags:            resources.NewTagResource(httpClient, opts.AccountID),
 		Fields:          resources.NewFieldResource(httpClient, opts.AccountID),
+		Users:           resources.NewUserResource(httpClient),
 		Authentication:  resources.NewAuthenticationResource(httpClient),
 		PublicDocuments: resources.NewPublicDocumentResource(httpClient),
 	}, nil
 }
 
-// ErrNoSigners is returned by UploadAndRequestSignatures when no signers are provided.
-var ErrNoSigners = errors.New("assinafy: at least one signer is required")
-
-// UploadAndRequestSignatures is a convenience helper that uploads a file,
-// creates each signer, and creates a virtual assignment in one call.
+// UploadAndRequestSignatures uploads fileContent, creates each requested signer,
+// and creates a virtual assignment, returning all three response groups. It
+// requires client API-key or bearer authentication; an empty accountID uses the
+// Client default. expiresAt is an optional ISO-8601 date/time.
 //
-// If accountID is empty, the Client's default AccountID is used.
+// The calls are sequential and are not transactional: a later failure does not
+// remove the document or signers already created. It returns ErrNoSigners or
+// ErrInvalidSigner before making a request. After upload, an error is accompanied
+// by a partial result containing the document and any created signer IDs so the
+// caller can clean them up.
 func (c *Client) UploadAndRequestSignatures(
 	ctx context.Context,
 	fileContent []byte,
@@ -115,6 +155,14 @@ func (c *Client) UploadAndRequestSignatures(
 	if len(signers) == 0 {
 		return nil, ErrNoSigners
 	}
+	for i, signer := range signers {
+		if strings.TrimSpace(signer.Name) == "" {
+			return nil, fmt.Errorf("%w: signer %d has no name", ErrInvalidSigner, i+1)
+		}
+		if strings.TrimSpace(signer.Email) == "" && strings.TrimSpace(signer.WhatsAppPhoneNumber) == "" {
+			return nil, fmt.Errorf("%w: signer %d has no email or WhatsApp contact", ErrInvalidSigner, i+1)
+		}
+	}
 	if accountID == "" {
 		accountID = c.accountID
 	}
@@ -124,22 +172,34 @@ func (c *Client) UploadAndRequestSignatures(
 		return nil, err
 	}
 
-	signerIDs := make([]string, len(signers))
-	signerRefs := make([]models.SignerReference, len(signers))
-	for i, s := range signers {
-		req := &models.CreateSignerRequest{FullName: s.Name}
-		if s.Email != "" {
-			req.Email = &s.Email
+	result := &models.UploadAndRequestSignaturesResult{
+		Document:  doc,
+		SignerIDs: make([]string, 0, len(signers)),
+	}
+	signerRefs := make([]models.SignerReference, 0, len(signers))
+	for _, s := range signers {
+		name := strings.TrimSpace(s.Name)
+		email := strings.TrimSpace(s.Email)
+		phone := strings.TrimSpace(s.WhatsAppPhoneNumber)
+		req := &models.CreateSignerRequest{FullName: name}
+		method := "Whatsapp"
+		if email != "" {
+			req.Email = &email
+			method = "Email"
 		}
-		if s.WhatsAppPhoneNumber != "" {
-			req.WhatsAppPhoneNumber = &s.WhatsAppPhoneNumber
+		if phone != "" {
+			req.WhatsAppPhoneNumber = &phone
 		}
 		signer, err := c.Signers.Create(ctx, accountID, req)
 		if err != nil {
-			return nil, err
+			return result, err
 		}
-		signerIDs[i] = signer.ID
-		signerRefs[i] = models.SignerReference{ID: signer.ID}
+		result.SignerIDs = append(result.SignerIDs, signer.ID)
+		signerRefs = append(signerRefs, models.SignerReference{
+			ID:                  signer.ID,
+			VerificationMethod:  method,
+			NotificationMethods: []string{method},
+		})
 	}
 
 	body := &models.CreateAssignmentRequest{
@@ -155,12 +215,8 @@ func (c *Client) UploadAndRequestSignatures(
 
 	assignment, err := c.Assignments.Create(ctx, doc.ID, body)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
-
-	return &models.UploadAndRequestSignaturesResult{
-		Document:   doc,
-		Assignment: assignment,
-		SignerIDs:  signerIDs,
-	}, nil
+	result.Assignment = assignment
+	return result, nil
 }

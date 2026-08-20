@@ -59,6 +59,22 @@ func TestDocumentsList(t *testing.T) {
 	}
 }
 
+func TestDocumentsListDoesNotMutateParams(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	params := &models.ListParams{}
+	docs := NewDocumentResource(httpClient, "acc1")
+	if _, err := docs.List(context.Background(), "", params); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if params.Page != 0 || params.PerPage != 0 {
+		t.Errorf("List mutated params: %+v", params)
+	}
+}
+
 func TestDocumentsListEncodesTags(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("tags"); got != "t1,t2" {
@@ -119,6 +135,22 @@ func TestWebhooksListDispatchesOmitsEmptyEvent(t *testing.T) {
 	}
 }
 
+func TestWebhooksListDispatchesDoesNotMutateParams(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	})
+
+	params := &models.WebhookDispatchListParams{}
+	r := NewWebhookResource(httpClient, "acc1")
+	if _, err := r.ListDispatches(context.Background(), "", params); err != nil {
+		t.Fatalf("ListDispatches: %v", err)
+	}
+	if *params != (models.WebhookDispatchListParams{}) {
+		t.Errorf("ListDispatches mutated params: %+v", params)
+	}
+}
+
 func TestSignerCreateUsesDefaultAccount(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/accounts/acc1/signers" {
@@ -126,7 +158,9 @@ func TestSignerCreateUsesDefaultAccount(t *testing.T) {
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body["full_name"] != "Bob" {
 			t.Errorf("full_name = %v", body["full_name"])
@@ -150,8 +184,8 @@ func TestAssignmentsSignSendsAccessCode(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s", r.Method)
 		}
-		if !strings.HasSuffix(r.URL.Path, "/assignments/aid") {
-			t.Errorf("path = %q", r.URL.Path)
+		if r.URL.EscapedPath() != "/documents/did/assignments/aid" {
+			t.Errorf("path = %q", r.URL.EscapedPath())
 		}
 		if got := r.URL.Query().Get("signer-access-code"); got != "code-1" {
 			t.Errorf("access code = %q", got)
@@ -227,9 +261,14 @@ func TestTemplatesListEncodesStatusFilter(t *testing.T) {
 
 func TestCreateFromTemplateDoesNotMutateOptions(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.EscapedPath() != "/accounts/acc1/templates/template1/documents" {
+			t.Errorf("request = %s %s", r.Method, r.URL.EscapedPath())
+		}
 		var body models.CreateDocumentFromTemplateOptions
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if len(body.Signers) != 1 || body.Signers[0].ID != "signer1" {
 			t.Errorf("signers = %+v", body.Signers)
@@ -292,7 +331,9 @@ func TestTagsCreateEncodesBody(t *testing.T) {
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body["name"] != "Contracts" || body["color"] != "ff8800" {
 			t.Errorf("body = %v", body)
@@ -344,8 +385,12 @@ func TestTagsDeleteSendsForce(t *testing.T) {
 	})
 
 	r := NewTagResource(httpClient, "acc1")
-	if err := r.Delete(context.Background(), "", "t1", true); err != nil {
-		t.Fatalf("Delete: %v", err)
+	result, err := r.DeleteWithResult(context.Background(), "", "t1", true)
+	if err != nil {
+		t.Fatalf("DeleteWithResult: %v", err)
+	}
+	if !result.Deleted {
+		t.Errorf("result = %+v", result)
 	}
 }
 
@@ -358,7 +403,9 @@ func TestDocumentTagsReplaceSendsNames(t *testing.T) {
 			Tags []string `json:"tags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if len(body.Tags) != 2 || body.Tags[0] != "A" || body.Tags[1] != "B" {
 			t.Errorf("tags = %v", body.Tags)
@@ -383,7 +430,9 @@ func TestDocumentTagsReplaceNilBecomesEmptyArray(t *testing.T) {
 			Tags []string `json:"tags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body.Tags == nil || len(body.Tags) != 0 {
 			t.Errorf("expected empty (non-null) tags array, got %v", body.Tags)
@@ -408,8 +457,12 @@ func TestDocumentTagsDetach(t *testing.T) {
 	})
 
 	r := NewDocumentResource(httpClient, "acc1")
-	if err := r.DetachTag(context.Background(), "", "d1", "t1"); err != nil {
-		t.Fatalf("DetachTag: %v", err)
+	result, err := r.DetachTagWithResult(context.Background(), "", "d1", "t1")
+	if err != nil {
+		t.Fatalf("DetachTagWithResult: %v", err)
+	}
+	if !result.Detached {
+		t.Errorf("result = %+v", result)
 	}
 }
 

@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -36,6 +37,7 @@ func TestNetworkError(t *testing.T) {
 }
 
 func TestIsStatusCode(t *testing.T) {
+	var nilAPI *APIError
 	cases := []struct {
 		name string
 		err  error
@@ -44,6 +46,7 @@ func TestIsStatusCode(t *testing.T) {
 	}{
 		{"matches", &APIError{StatusCode: 400}, 400, true},
 		{"mismatch", &APIError{StatusCode: 404}, 400, false},
+		{"typed nil", error(nilAPI), 400, false},
 		{"non-api", errors.New("other"), 400, false},
 	}
 	for _, tc := range cases {
@@ -56,6 +59,8 @@ func TestIsStatusCode(t *testing.T) {
 }
 
 func TestIsRetryable(t *testing.T) {
+	var nilAPI *APIError
+	var nilNetwork *NetworkError
 	cases := []struct {
 		name string
 		err  error
@@ -64,9 +69,14 @@ func TestIsRetryable(t *testing.T) {
 		{"429", &APIError{StatusCode: http.StatusTooManyRequests}, true},
 		{"500", &APIError{StatusCode: http.StatusInternalServerError}, true},
 		{"503", &APIError{StatusCode: http.StatusServiceUnavailable}, true},
+		{"600", &APIError{StatusCode: 600}, false},
 		{"400", &APIError{StatusCode: http.StatusBadRequest}, false},
 		{"404", &APIError{StatusCode: http.StatusNotFound}, false},
 		{"network", &NetworkError{Err: errors.New("eof")}, true},
+		{"canceled", &NetworkError{Err: context.Canceled}, false},
+		{"deadline", &NetworkError{Err: context.DeadlineExceeded}, false},
+		{"typed nil API", error(nilAPI), false},
+		{"typed nil network", error(nilNetwork), false},
 		{"other", errors.New("other"), false},
 	}
 	for _, tc := range cases {

@@ -59,7 +59,9 @@ func TestAccountsUpdateOmitsNilFields(t *testing.T) {
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body["name"] != "Acme" {
 			t.Errorf("name = %v", body["name"])
@@ -153,7 +155,9 @@ func TestDocumentsRename(t *testing.T) {
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body["name"] != "renamed.pdf" {
 			t.Errorf("name = %v", body["name"])
@@ -221,7 +225,9 @@ func TestAuthenticationLinkSocialLogin(t *testing.T) {
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body["provider"] != "google" || body["token"] != "tok" {
 			t.Errorf("body = %v", body)
@@ -285,7 +291,9 @@ func TestVerifyEmailSendsAccessCodeAsQuery(t *testing.T) {
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
 		}
 		if body["verification-code"] != "123456" {
 			t.Errorf("verification-code = %v", body["verification-code"])
