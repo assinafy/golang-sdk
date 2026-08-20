@@ -10,7 +10,9 @@ import (
 	"github.com/assinafy/golang-sdk/models"
 )
 
-// DocumentResource exposes the documented `Document` endpoints.
+// DocumentResource exposes authenticated document lifecycle, artifact, and tag
+// endpoints. Its methods follow the package-level account and error contract;
+// Verify is the unauthenticated exception.
 type DocumentResource struct {
 	http      *internal.HTTPClient
 	accountID string
@@ -22,7 +24,11 @@ func NewDocumentResource(httpClient *internal.HTTPClient, accountID string) *Doc
 	return &DocumentResource{http: httpClient, accountID: accountID}
 }
 
-// Upload uploads a file as a new document. POST /accounts/{account_id}/documents.
+// Upload sends fileContent as the required multipart "file" part and returns the
+// created Document. The SDK also sends fileName as a compatibility "name" part
+// plus optional metadata fields. It requires client authentication; an empty
+// accountID uses the default. Processing continues asynchronously after response.
+// POST /accounts/{account_id}/documents.
 func (r *DocumentResource) Upload(ctx context.Context, accountID string, fileContent []byte, fileName string, metadata map[string]string) (*models.Document, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
 
@@ -39,7 +45,9 @@ func (r *DocumentResource) Upload(ctx context.Context, accountID string, fileCon
 	return &doc, nil
 }
 
-// List returns the workspace documents page.
+// List returns a page of Document payloads and X-Pagination metadata using the
+// applicable ListParams filters. It requires client authentication; an empty
+// accountID uses the configured default.
 // GET /accounts/{account_id}/documents.
 func (r *DocumentResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -62,9 +70,10 @@ func (r *DocumentResource) List(ctx context.Context, accountID string, params *m
 	return paginated(docs, resp), nil
 }
 
-// Search returns the workspace documents matching the search term, ordered by
-// relevance and paginated via the X-Pagination-* response headers. It accepts
-// the same status/method/tag filters as List.
+// Search returns matching Document payloads ordered by relevance with
+// X-Pagination metadata. The current contract uses search and status; method,
+// tags, and sort are compatibility filters carried by ListParams. It requires
+// client authentication and uses the default for an empty accountID.
 // GET /accounts/{account_id}/documents/search.
 func (r *DocumentResource) Search(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -87,7 +96,8 @@ func (r *DocumentResource) Search(ctx context.Context, accountID string, params 
 	return paginated(docs, resp), nil
 }
 
-// Get retrieves a single document. GET /documents/{document_id}.
+// Get returns the authenticated Document payload for documentID.
+// GET /documents/{document_id}.
 func (r *DocumentResource) Get(ctx context.Context, documentID string) (*models.Document, error) {
 	var doc models.Document
 	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID)).Execute(ctx, &doc)
@@ -97,14 +107,18 @@ func (r *DocumentResource) Get(ctx context.Context, documentID string) (*models.
 	return &doc, nil
 }
 
-// Delete removes a document. DELETE /documents/{document_id}.
+// Delete permanently removes an authenticated, deletable document and returns
+// only error, discarding the documented empty data array. A non-deletable
+// lifecycle state produces an API error.
+// DELETE /documents/{document_id}.
 func (r *DocumentResource) Delete(ctx context.Context, documentID string) error {
 	_, err := r.http.NewRequest(http.MethodDelete, "/documents/"+url.PathEscape(documentID)).Execute(ctx, nil)
 	return err
 }
 
-// Rename changes a document's name and returns the updated document. Renaming is
-// only allowed before the signature process starts (while the document is in
+// Rename sends RenameDocumentRequest with name and returns the authenticated,
+// updated Document. Renaming is only allowed before the signature process starts
+// (while the document is in
 // uploaded or metadata_ready status with no signers); once signing has begun or
 // the document is certificated the API rejects the change with a 400. The name
 // is normalized server-side (diacritics removed, unsupported characters replaced
@@ -121,7 +135,7 @@ func (r *DocumentResource) Rename(ctx context.Context, documentID, name string) 
 	return &out, nil
 }
 
-// Activities lists the audit-trail entries on a document.
+// Activities returns the authenticated document's DocumentActivity audit-trail payloads.
 // GET /documents/{document_id}/activities.
 func (r *DocumentResource) Activities(ctx context.Context, documentID string) ([]models.DocumentActivity, error) {
 	var out []models.DocumentActivity
@@ -132,35 +146,44 @@ func (r *DocumentResource) Activities(ctx context.Context, documentID string) ([
 	return out, nil
 }
 
-// Download fetches a document artifact. GET /documents/{document_id}/download/{artifact}.
+// Download returns raw bytes for the authenticated document artifact named by
+// artifact. An unavailable artifact or invalid artifact code produces an API error.
+// GET /documents/{document_id}/download/{artifact}.
 func (r *DocumentResource) Download(ctx context.Context, documentID, artifact string) ([]byte, error) {
 	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/download/"+url.PathEscape(artifact), nil)
 }
 
-// Thumbnail downloads the document thumbnail JPEG.
+// Thumbnail returns the authenticated document thumbnail as raw image bytes. A
+// thumbnail that is not yet available produces an API error.
 // GET /documents/{document_id}/thumbnail.
 func (r *DocumentResource) Thumbnail(ctx context.Context, documentID string) ([]byte, error) {
 	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/thumbnail", nil)
 }
 
-// DownloadPage downloads a single rendered page.
+// DownloadPage returns one authenticated rendered page as raw bytes. An unknown
+// document or page produces an API error.
 // GET /documents/{document_id}/pages/{page_id}/download.
 func (r *DocumentResource) DownloadPage(ctx context.Context, documentID, pageID string) ([]byte, error) {
 	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/pages/"+url.PathEscape(pageID)+"/download", nil)
 }
 
-// Verify validates a document by signature hash.
+// Verify validates signatureHash without requiring a client credential and
+// returns VerifyDocumentResult; an unknown or malformed hash is represented by
+// the API's verification payload or error response.
 // GET /documents/{signature_hash}/verify.
 func (r *DocumentResource) Verify(ctx context.Context, signatureHash string) (*models.VerifyDocumentResult, error) {
 	var out models.VerifyDocumentResult
-	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(signatureHash)+"/verify").Execute(ctx, &out)
+	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(signatureHash)+"/verify").WithoutAuth().Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-// CreateFromTemplate creates a document from a template.
+// CreateFromTemplate sends CreateDocumentFromTemplateOptions with the required
+// signer-role mappings and returns the created Document. It requires client
+// authentication; an empty accountID uses the configured default. Generation
+// continues asynchronously after the response.
 // POST /accounts/{account_id}/templates/{template_id}/documents.
 func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner, opts *models.CreateDocumentFromTemplateOptions) (*models.Document, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -180,7 +203,9 @@ func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, te
 	return &out, nil
 }
 
-// EstimateCostFromTemplate returns the cost estimate of creating a document from a template.
+// EstimateCostFromTemplate sends the required TemplateSigner list and returns a
+// CostEstimate without creating a document. It requires client authentication;
+// an empty accountID uses the configured default.
 // POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost.
 func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) (*models.CostEstimate, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -195,7 +220,8 @@ func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, account
 	return &out, nil
 }
 
-// ListTags lists the tags currently attached to a document.
+// ListTags returns Tag payloads currently attached to the authenticated
+// document. An empty accountID uses the configured default.
 // GET /accounts/{account_id}/documents/{document_id}/tags.
 func (r *DocumentResource) ListTags(ctx context.Context, accountID, documentID string) ([]models.Tag, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -208,17 +234,19 @@ func (r *DocumentResource) ListTags(ctx context.Context, accountID, documentID s
 	return out, nil
 }
 
-// ReplaceTags replaces a document's tag set with the provided names, returning
-// the resulting tags. An empty slice detaches all tags. Unknown names are
-// created automatically (case-insensitive lookup).
+// ReplaceTags replaces a document's tag set with the provided tag IDs and
+// returns the resulting tags. An empty slice detaches all tags. The live API
+// also accepts names and creates unknown names as a compatibility extension. It
+// requires client authentication and an empty accountID uses the default.
 // PUT /accounts/{account_id}/documents/{document_id}/tags.
 func (r *DocumentResource) ReplaceTags(ctx context.Context, accountID, documentID string, tags []string) ([]models.Tag, error) {
 	return r.writeTags(ctx, http.MethodPut, accountID, documentID, tags)
 }
 
-// AppendTags attaches additional tags to a document without removing existing
-// ones, returning the resulting tags. Re-attaching a present tag is a no-op and
-// unknown names are created automatically.
+// AppendTags attaches tag IDs without removing existing tags and returns the
+// resulting set. Re-attaching a present tag is a no-op. The live API also
+// accepts names and creates unknown names as a compatibility extension. It
+// requires client authentication and an empty accountID uses the default.
 // POST /accounts/{account_id}/documents/{document_id}/tags.
 func (r *DocumentResource) AppendTags(ctx context.Context, accountID, documentID string, tags []string) ([]models.Tag, error) {
 	return r.writeTags(ctx, http.MethodPost, accountID, documentID, tags)
@@ -239,17 +267,33 @@ func (r *DocumentResource) writeTags(ctx context.Context, method, accountID, doc
 }
 
 // DetachTag detaches a single tag from a document. The tag itself is not
-// deleted, and detaching a tag that was not attached is a no-op.
+// deleted, and detaching a tag that was not attached is a no-op. It requires
+// client authentication, returns only error (discarding the documented
+// {detached:boolean} result), and uses the default for an empty accountID.
 // DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}.
 func (r *DocumentResource) DetachTag(ctx context.Context, accountID, documentID, tagID string) error {
+	return r.detachTag(ctx, accountID, documentID, tagID, nil)
+}
+
+// DetachTagWithResult detaches a tag and returns the documented result.
+// DELETE /accounts/{account_id}/documents/{document_id}/tags/{tag_id}.
+func (r *DocumentResource) DetachTagWithResult(ctx context.Context, accountID, documentID, tagID string) (*models.DocumentTagDetachResult, error) {
+	var out models.DocumentTagDetachResult
+	if err := r.detachTag(ctx, accountID, documentID, tagID, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (r *DocumentResource) detachTag(ctx context.Context, accountID, documentID, tagID string, out any) error {
 	accountID = resolveAccountID(accountID, r.accountID)
 
 	path := "/accounts/" + url.PathEscape(accountID) + "/documents/" + url.PathEscape(documentID) + "/tags/" + url.PathEscape(tagID)
-	_, err := r.http.NewRequest(http.MethodDelete, path).Execute(ctx, nil)
+	_, err := r.http.NewRequest(http.MethodDelete, path).Execute(ctx, out)
 	return err
 }
 
-// ListStatuses returns the documented status codes.
+// ListStatuses returns the authenticated endpoint's DocumentStatusInfo payloads.
 // GET /documents/statuses.
 func (r *DocumentResource) ListStatuses(ctx context.Context) ([]models.DocumentStatusInfo, error) {
 	var out []models.DocumentStatusInfo

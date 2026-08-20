@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -14,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/assinafy/golang-sdk/errors"
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 )
 
-const userAgent = "assinafy-go-sdk/1.0.0"
+const userAgent = "assinafy-go-sdk"
 
 // HTTPClient is a thin JSON/multipart client around net/http.
 type HTTPClient struct {
@@ -42,7 +43,20 @@ func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPCl
 	return &HTTPClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		headers: headers,
-		httpc:   &http.Client{Timeout: timeout},
+		httpc: &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 consecutive requests")
+				}
+				if len(via) > 0 && (req.URL.Scheme != via[0].URL.Scheme || !strings.EqualFold(req.URL.Host, via[0].URL.Host)) {
+					req.Header.Del("Authorization")
+					req.Header.Del("X-Api-Key")
+					req.Header.Del("Referer")
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -57,6 +71,7 @@ type Request struct {
 	path    string
 	query   url.Values
 	headers http.Header
+	noAuth  bool
 	body    any
 	rawBody []byte
 }
@@ -83,6 +98,13 @@ func (r *Request) WithQuery(key, value string) *Request {
 // WithHeader sets a request-specific header (overrides client defaults).
 func (r *Request) WithHeader(key, value string) *Request {
 	r.headers.Set(key, value)
+	return r
+}
+
+// WithoutAuth omits the client's API-key and bearer-token headers. It is used
+// for public and signer-access-code operations.
+func (r *Request) WithoutAuth() *Request {
+	r.noAuth = true
 	return r
 }
 
@@ -137,6 +159,9 @@ func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response,
 	}
 
 	for k, vs := range c.headers {
+		if r.noAuth && (k == "Authorization" || k == "X-Api-Key") {
+			continue
+		}
 		req.Header[k] = append(req.Header[k], vs...)
 	}
 	if contentType != "" && req.Header.Get("Content-Type") == "" {
@@ -148,7 +173,7 @@ func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response,
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, &errors.NetworkError{Err: err}
+		return nil, newNetworkError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -187,7 +212,7 @@ func (c *HTTPClient) UploadMultipart(ctx context.Context, path, fieldName, fileN
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, &errors.NetworkError{Err: err}
+		return nil, newNetworkError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -196,6 +221,16 @@ func (c *HTTPClient) UploadMultipart(ctx context.Context, path, fieldName, fileN
 
 // Download fetches a path as raw bytes (used for artifact/page/thumbnail downloads).
 func (c *HTTPClient) Download(ctx context.Context, path string, query map[string]string) ([]byte, error) {
+	return c.download(ctx, path, query, false)
+}
+
+// DownloadUnauthenticated downloads raw bytes without the client's API-key or
+// bearer-token header.
+func (c *HTTPClient) DownloadUnauthenticated(ctx context.Context, path string, query map[string]string) ([]byte, error) {
+	return c.download(ctx, path, query, true)
+}
+
+func (c *HTTPClient) download(ctx context.Context, path string, query map[string]string, noAuth bool) ([]byte, error) {
 	target := c.baseURL + path
 	if len(query) > 0 {
 		q := url.Values{}
@@ -214,22 +249,55 @@ func (c *HTTPClient) Download(ctx context.Context, path string, query map[string
 		return nil, fmt.Errorf("assinafy: build request: %w", err)
 	}
 	for k, vs := range c.headers {
+		if noAuth && (k == "Authorization" || k == "X-Api-Key") {
+			continue
+		}
 		req.Header[k] = append(req.Header[k], vs...)
 	}
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
-		return nil, &errors.NetworkError{Err: err}
+		return nil, newNetworkError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 400 {
-		// parseResponse always returns a non-nil error for status >= 400.
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		// parseResponse always returns a non-nil error outside the 2xx range.
 		_, err := parseResponse(resp, nil)
 		return nil, err
 	}
 
-	return io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, newNetworkError(fmt.Errorf("read response body: %w", err))
+	}
+	return body, nil
+}
+
+func newNetworkError(err error) *sdkerrors.NetworkError {
+	if urlErr, ok := err.(*url.Error); ok {
+		clean := *urlErr
+		clean.URL = redactSignerAccessCode(clean.URL)
+		err = &clean
+	}
+	return &sdkerrors.NetworkError{Err: err}
+}
+
+func redactSignerAccessCode(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		if i := strings.IndexByte(rawURL, '?'); i >= 0 {
+			return rawURL[:i] + "?[REDACTED]"
+		}
+		return rawURL
+	}
+	query := u.Query()
+	if _, ok := query["signer-access-code"]; !ok {
+		return rawURL
+	}
+	query.Set("signer-access-code", "REDACTED")
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 // envelope mirrors the shared response wrapper documented at
@@ -243,23 +311,23 @@ type envelope struct {
 func parseResponse(resp *http.Response, result any) (*Response, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("assinafy: read response: %w", err)
+		return nil, newNetworkError(fmt.Errorf("read response body: %w", err))
 	}
 
 	out := &Response{StatusCode: resp.StatusCode, Headers: resp.Header}
 	body = bytes.TrimSpace(body)
 
 	if len(body) == 0 {
-		if resp.StatusCode >= 400 {
-			return nil, &errors.APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return out, &sdkerrors.APIError{StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode), Headers: resp.Header.Clone()}
 		}
 		return out, nil
 	}
 
 	var env envelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		if resp.StatusCode >= 400 {
-			return nil, &errors.APIError{StatusCode: resp.StatusCode, Message: string(body)}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return out, &sdkerrors.APIError{StatusCode: resp.StatusCode, Message: string(body), Headers: resp.Header.Clone()}
 		}
 		if result == nil {
 			return nil, fmt.Errorf("assinafy: parse response: %w", err)
@@ -281,10 +349,16 @@ func parseResponse(resp *http.Response, result any) (*Response, error) {
 	}
 	isEnvelope := hasEnvelopeStatus && (len(env.Data) > 0 || env.Message != "")
 
-	if resp.StatusCode >= 400 || (isEnvelope && envStatus >= 400) {
-		apiErr := &errors.APIError{StatusCode: envStatus, Message: env.Message}
+	httpFailed := resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices
+	envelopeFailed := isEnvelope && (envStatus < http.StatusOK || envStatus >= http.StatusMultipleChoices)
+	if httpFailed || envelopeFailed {
+		statusCode := resp.StatusCode
+		if !httpFailed && envelopeFailed {
+			statusCode = envStatus
+		}
+		apiErr := &sdkerrors.APIError{StatusCode: statusCode, Message: env.Message, Headers: resp.Header.Clone()}
 		if apiErr.Message == "" {
-			apiErr.Message = http.StatusText(envStatus)
+			apiErr.Message = http.StatusText(statusCode)
 		}
 		if hasDataPayload(env.Data) {
 			var data any
@@ -292,7 +366,7 @@ func parseResponse(resp *http.Response, result any) (*Response, error) {
 				apiErr.Data = data
 			}
 		}
-		return nil, apiErr
+		return out, apiErr
 	}
 
 	if result == nil {

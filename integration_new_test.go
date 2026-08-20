@@ -2,6 +2,7 @@ package assinafy
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,7 +132,7 @@ func TestIntegrationDocumentRename(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	doc := uploadReadyDoc(t, c, ctx)
+	doc := uploadReadyDoc(t, c, ctx, "", true)
 	original := doc.Name
 
 	renamed, err := c.Documents.Rename(ctx, doc.ID, "go-sdk-audit-renamed.pdf")
@@ -151,7 +152,7 @@ func TestIntegrationDocumentRename(t *testing.T) {
 	}
 
 	if _, err := c.Documents.Rename(ctx, doc.ID, original); err != nil {
-		t.Logf("restore original name: %v", err)
+		t.Errorf("restore original name: %v", err)
 	}
 }
 
@@ -166,7 +167,7 @@ func TestIntegrationAssignmentsList(t *testing.T) {
 
 	page, err := c.Assignments.List(ctx, &models.ListParams{PerPage: 5})
 	if err != nil {
-		if !sdkerrors.IsStatusCode(err, 400) {
+		if !sdkerrors.IsStatusCode(err, 400) || !strings.Contains(err.Error(), "contexto de conta") {
 			t.Fatalf("Assignments.List: unexpected error: %v", err)
 		}
 		t.Log("Assignments.List returned 400 (expected with API-key auth: needs current-account context)")

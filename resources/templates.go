@@ -10,7 +10,8 @@ import (
 	"github.com/assinafy/golang-sdk/models"
 )
 
-// TemplateResource exposes the documented `Template` endpoints.
+// TemplateResource exposes authenticated account-template read endpoints. Its
+// methods follow the package-level account-selection and error contract.
 type TemplateResource struct {
 	http      *internal.HTTPClient
 	accountID string
@@ -21,7 +22,10 @@ func NewTemplateResource(httpClient *internal.HTTPClient, accountID string) *Tem
 	return &TemplateResource{http: httpClient, accountID: accountID}
 }
 
-// List returns the workspace templates page.
+// List returns Template payloads and X-Pagination metadata. Search, page, and
+// per-page are documented; populated shared status, sort, and tag fields are
+// compatibility queries. It requires client authentication; an empty accountID
+// uses the configured default.
 // GET /accounts/{account_id}/templates.
 func (r *TemplateResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Template], error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -43,7 +47,10 @@ func (r *TemplateResource) List(ctx context.Context, accountID string, params *m
 	return paginated(out, resp), nil
 }
 
-// Get retrieves a template's details.
+// Get returns the authenticated Template detail payload, including roles, pages,
+// and default document tags when supplied by the API. An empty accountID uses
+// the configured default. This live compatibility route is absent from the
+// current OpenAPI; List is the only officially described template operation.
 // GET /accounts/{account_id}/templates/{template_id}.
 func (r *TemplateResource) Get(ctx context.Context, accountID, templateID string) (*models.Template, error) {
 	accountID = resolveAccountID(accountID, r.accountID)

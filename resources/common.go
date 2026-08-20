@@ -1,8 +1,15 @@
 // Package resources contains the typed clients for each Assinafy API resource.
 //
-// Each resource is a thin wrapper around internal.HTTPClient. Methods accept a
-// context.Context, optional account ID, and the documented request/response
-// types from the models package.
+// Unless a method says otherwise, it uses the API key or bearer token configured
+// on assinafy.Client. Account-scoped methods accept an account ID and fall back
+// to ClientOptions.AccountID when it is empty. Signer-facing methods authenticate
+// with their signer access code, and public/authentication methods need no client
+// credential unless their comments say otherwise.
+//
+// JSON methods encode the documented models request and decode the response's
+// data envelope into the documented result. Download methods return raw bytes.
+// Non-success responses are returned as *errors.APIError; transport failures are
+// *errors.NetworkError, while local encoding/decoding errors wrap their cause.
 package resources
 
 import (
@@ -22,14 +29,15 @@ func resolveAccountID(id, fallback string) string {
 }
 
 func applyListParams(req *internal.Request, params *models.ListParams) {
-	if params == nil {
-		params = &models.ListParams{}
+	p := models.ListParams{}
+	if params != nil {
+		p = *params
 	}
-	params.SetDefaults()
-	req.WithQuery("page", strconv.Itoa(params.Page))
-	req.WithQuery("per-page", strconv.Itoa(params.PerPage))
-	req.WithQuery("search", params.Search)
-	req.WithQuery("sort", params.Sort)
+	p.SetDefaults()
+	req.WithQuery("page", strconv.Itoa(p.Page))
+	req.WithQuery("per-page", strconv.Itoa(p.PerPage))
+	req.WithQuery("search", p.Search)
+	req.WithQuery("sort", p.Sort)
 }
 
 func paginated[T any](data []T, resp *internal.Response) *models.PaginatedResult[T] {

@@ -2,13 +2,14 @@
 
 [![CI](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml)
 
-Go client for the [Assinafy API](https://api.assinafy.com.br/v1/docs).
-
-The SDK covers the documented Assinafy REST resources: authentication, accounts, documents (including search, public document flows, and document tags), signers (including signer-facing flows), assignments, field definitions, templates, tags, and webhooks.
+Go client for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs). The SDK exposes every operation in the current OpenAPI contract and keeps older call shapes available where that can be done without breaking users.
 
 ## Requirements
 
 - Go 1.26 or later
+- CI builds and tests with Go 1.26.x and 1.27.x; quality checks run with Go 1.27.x
+
+Go does not designate releases as LTS. This module's compatibility floor is the `go 1.26` directive in `go.mod`; CI also covers the newer supported release.
 
 ## Installation
 
@@ -16,199 +17,188 @@ The SDK covers the documented Assinafy REST resources: authentication, accounts,
 go get github.com/assinafy/golang-sdk
 ```
 
-## Quick Start
+## Quick start
+
+This complete program makes a read-only sandbox request. Keep credentials in environment variables; do not place them in source code.
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "os"
+	"context"
+	"fmt"
+	"log"
+	"os"
 
-    assinafy "github.com/assinafy/golang-sdk"
-    "github.com/assinafy/golang-sdk/models"
+	assinafy "github.com/assinafy/golang-sdk"
 )
 
 func main() {
-    client, err := assinafy.NewClient(assinafy.ClientOptions{
-        APIKey:    os.Getenv("ASSINAFY_API_KEY"),
-        AccountID: os.Getenv("ASSINAFY_ACCOUNT_ID"),
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
+	client, err := assinafy.NewClient(assinafy.ClientOptions{
+		APIKey:    os.Getenv("ASSINAFY_API_KEY"),
+		AccountID: os.Getenv("ASSINAFY_ACCOUNT_ID"),
+		BaseURL:   assinafy.SandboxBaseURL,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    ctx := context.Background()
-    pdf, err := os.ReadFile("contract.pdf")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    result, err := client.UploadAndRequestSignatures(
-        ctx, pdf, "contract.pdf",
-        []models.UploadAndRequestSignaturesSigner{
-            {Name: "John Doe", Email: "john@example.com"},
-        },
-        "Please sign this contract",
-        nil, "",
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println("document:", result.Document.ID)
-    fmt.Println("assignment:", result.Assignment.ID)
+	accounts, err := client.Accounts.List(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("accounts: %d\n", len(accounts))
 }
 ```
 
 ## Configuration
 
-| Option          | Type            | Default                              | Description                                                                  |
-| --------------- | --------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
-| `APIKey`        | `string`        | empty                                | Permanent credential. Sent as `X-Api-Key`.                                   |
-| `Token`         | `string`        | empty                                | Access token. Sent as `Authorization: Bearer`. Used when `APIKey` is empty.  |
-| `AccountID`     | `string`        | empty                                | Default workspace ID for account-scoped resources.                           |
-| `BaseURL`       | `string`        | `https://api.assinafy.com.br/v1`     | API base URL. Use `assinafy.SandboxBaseURL` for the sandbox environment.    |
-| `Timeout`       | `time.Duration` | `30s`                                | HTTP client timeout.                                                         |
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `APIKey` | `string` | empty | Permanent credential, sent as `X-Api-Key`. |
+| `Token` | `string` | empty | Access token, sent as `Authorization: Bearer`; used when `APIKey` is empty. |
+| `AccountID` | `string` | empty | Default account ID for account-scoped resources. A non-empty method argument overrides it. |
+| `BaseURL` | `string` | `https://api.assinafy.com.br/v1` | API base URL. Set `assinafy.SandboxBaseURL` for sandbox use. |
+| `Timeout` | `time.Duration` | `30s` | HTTP client timeout. |
 
-Credentials are optional at construction time so unauthenticated endpoints (login, public document lookup, signer-access-code flows) can be used.
+Credentials are optional when constructing a client because login, public-document, verification, and signer-access-code operations do not use account credentials. When both account credentials are configured, `APIKey` takes precedence over `Token`.
 
-## Resources
+## API coverage
 
-```go
-ctx := context.Background()
+The [complete API mapping](docs/API.md) documents all 89 operations from the current OpenAPI description, including method and path, authentication, SDK call, request content and fields, response payload, pagination or binary behavior, errors, and a direct official link for each operation.
 
-// Authentication
-auth, err := client.Authentication.Login(ctx, &models.LoginRequest{
-    Email: "user@example.com", Password: "secret",
-})
+| Official area | Operations | SDK resource |
+| --- | ---: | --- |
+| Accounts | 10 | `client.Accounts` |
+| Assignments | 7 | `client.Assignments` |
+| Authentication | 9 | `client.Authentication` |
+| Documents | 18 | `client.Documents` |
+| Fields | 8 | `client.Fields` |
+| Signers | 5 | `client.Signers` |
+| Signing | 17 | `client.PublicDocuments`, `client.Signers`, `client.Assignments`, `client.SignerDocuments` |
+| Tags | 4 | `client.Tags` |
+| Templates | 1 | `client.Templates` |
+| Users | 4 | `client.Users` |
+| Webhooks | 6 | `client.Webhooks` |
+| **Total** | **89** | |
 
-// Accounts (non-destructive: list, get, update, theme, logo download)
-accounts, err := client.Accounts.List(ctx)
-account, err := client.Accounts.Get(ctx, "")
-theme, err := client.Accounts.GetTheme(ctx, "")
-name := "Acme Inc."
-account, err = client.Accounts.Update(ctx, "", &models.UpdateAccountRequest{Name: &name})
+Common workflows can also use `client.UploadAndRequestSignatures`, which uploads a PDF, creates each signer, and creates the assignment in one call.
 
-// Documents
-doc, err := client.Documents.Upload(ctx, "", pdfBytes, "contract.pdf", nil)
-docs, err := client.Documents.List(ctx, "", &models.ListParams{Search: "contract"})
-hits, err := client.Documents.Search(ctx, "", &models.ListParams{Search: "invoice"})
-renamed, err := client.Documents.Rename(ctx, doc.ID, "final-contract.pdf")
-// Filter by tag IDs (AND semantics — only documents carrying every listed tag):
-tagged, err := client.Documents.List(ctx, "", &models.ListParams{Tags: []string{tagID1, tagID2}})
-verified, err := client.Documents.Verify(ctx, "SIGNATURE_HASH")
+### Contract-accurate call shapes
 
-// Signers
-email := "john@example.com"
-signer, err := client.Signers.Create(ctx, "", &models.CreateSignerRequest{
-    FullName: "John Doe", Email: &email,
-})
-
-// Assignments
-assignment, err := client.Assignments.Create(ctx, doc.ID, &models.CreateAssignmentRequest{
-    Method: models.MethodVirtual,
-    Signers: []models.SignerReference{
-        {ID: signer.ID, VerificationMethod: "Email", NotificationMethods: []string{"Email"}},
-    },
-})
-// List the current account's assignments (requires a user-token session; an
-// API key returns 400 because it carries no current-account context):
-page, err := client.Assignments.List(ctx, &models.ListParams{PerPage: 20})
-
-// Templates
-templates, err := client.Templates.List(ctx, "", &models.ListParams{Search: "Service"})
-
-// Tags (workspace labels) and document tags
-tag, err := client.Tags.Create(ctx, "", &models.CreateTagRequest{Name: "Contracts"})
-attached, err := client.Documents.ReplaceTags(ctx, "", doc.ID, []string{"Contracts", "2026-Q1"})
-
-// Field definitions
-fields, err := client.Fields.List(ctx, "", &models.ListFieldDefinitionsParams{IncludeStandard: true})
-
-// Webhooks
-sub, err := client.Webhooks.GetSubscription(ctx, "")
-```
-
-## Webhook Verification
-
-`ExtractEvent` decodes a delivered webhook body into a typed `models.WebhookPayload`:
+New additive methods expose v1 request or response details that older SDK signatures could not represent. This complete example shows the main variants:
 
 ```go
-verifier := assinafy.NewWebhookVerifier(os.Getenv("ASSINAFY_WEBHOOK_SECRET"))
+package example
 
-event, err := verifier.ExtractEvent(rawBody)
-if err != nil {
-    return
+import (
+	"context"
+
+	assinafy "github.com/assinafy/golang-sdk"
+	"github.com/assinafy/golang-sdk/models"
+)
+
+func useV1Shapes(
+	ctx context.Context,
+	client *assinafy.Client,
+	documentID string,
+	fieldID string,
+	email string,
+) error {
+	_, err := client.Assignments.EstimateCostWithRequest(ctx, documentID,
+		&models.EstimateAssignmentCostRequest{
+			Method: models.MethodVirtual,
+			Signers: []models.EstimateAssignmentCostSigner{
+				{VerificationMethod: "Email", NotificationMethods: []string{"Email"}},
+			},
+		})
+	if err != nil {
+		return err
+	}
+
+	if _, err = client.Fields.ValidateAuthenticated(ctx, "", fieldID,
+		&models.ValidateFieldRequest{Value: "12345678909"}); err != nil {
+		return err
+	}
+
+	if _, err = client.PublicDocuments.GetDocument(ctx, documentID); err != nil {
+		return err
+	}
+	return client.PublicDocuments.SendTokenByEmail(ctx, documentID, email)
 }
-
-fmt.Println("event:", event.Event)
 ```
 
-> **`Verify` is experimental.** Assinafy's documented [delivery contract](https://api.assinafy.com.br/v1/docs) specifies only the HTTP method, content type, and retry/circuit-breaker behaviour — it does not define a signature header, and the subscription object exposes no shared-secret field. `Verify` implements the conventional `hex(HMAC-SHA256(secret, body))` scheme, but confirm the exact header and algorithm with Assinafy before relying on it for authenticity.
+The corresponding compatibility choices are:
 
-## Errors
-
-All API failures are surfaced as `*errors.APIError` with a `StatusCode`, `Message`, and optional `Data`. Transport failures are wrapped in `*errors.NetworkError`. Helpers `errors.IsStatusCode(err, code)` and `errors.IsRetryable(err)` make it easy to react to common cases.
-
-## API Coverage
-
-Every endpoint documented at <https://api.assinafy.com.br/v1/docs> is exposed by the SDK:
-
-| Area | Endpoints | SDK |
+| Current v1 call | Earlier compatible call | Difference |
 | --- | --- | --- |
-| Authentication | `POST /login`, `POST /authentication/social-login`, `POST /auth/link-social-login`, `POST/GET/DELETE /users/api-keys`, `PUT /authentication/{change,request,reset}-password` | `client.Authentication` |
-| Accounts | `GET /accounts`, `GET/PUT /accounts/{id}`, `GET /accounts/{id}/theme`, `GET /accounts/{id}/logo` | `client.Accounts` |
-| Signers (workspace) | `POST/GET /accounts/{id}/signers`, `GET/PUT/DELETE /accounts/{id}/signers/{sid}` | `client.Signers` |
-| Signers (self-service) | `GET /signers/self`, `PUT /signers/accept-terms`, `POST /verify`, `PUT /documents/{id}/signers/confirm-data`, `POST/GET /signature[/{type}]` | `client.Signers` |
-| Documents | `POST/GET /accounts/{id}/documents`, `GET /accounts/{id}/documents/search`, `GET/DELETE/PATCH /documents/{id}`, `GET /documents/{id}/{thumbnail,download/{art},pages/{pid}/download}`, `GET /documents/{hash}/verify`, `GET /documents/{id}/activities`, `GET /documents/statuses`, `POST /accounts/{id}/templates/{tid}/documents[/estimate-cost]` | `client.Documents` |
-| Document tags | `GET/PUT/POST /accounts/{id}/documents/{did}/tags`, `DELETE /accounts/{id}/documents/{did}/tags/{tid}` | `client.Documents.{ListTags,ReplaceTags,AppendTags,DetachTag}` |
-| Public documents | `GET /public/documents/{id}`, `PUT /public/documents/{id}/send-token` | `client.PublicDocuments` |
-| Templates | `GET /accounts/{id}/templates`, `GET /accounts/{id}/templates/{tid}` | `client.Templates` |
-| Tags | `GET/POST /accounts/{id}/tags`, `PUT/DELETE /accounts/{id}/tags/{tid}` | `client.Tags` |
-| Assignments | `GET /assignments`, `POST /documents/{id}/assignments[/estimate-cost]`, `PUT /documents/{id}/assignments/{aid}/{reset-expiration,reject}`, `POST /documents/{id}/assignments/{aid}`, `PUT /documents/{id}/assignments/{aid}/signers/{sid}/resend`, `POST .../estimate-resend-cost`, `GET .../whatsapp-notifications`, `GET /sign` | `client.Assignments` |
-| Signer documents | `GET /signers/{sid}/document[s]`, `GET /signers/{sid}/documents/search`, `PUT /signers/documents/{sign,decline}-multiple`, `GET /signers/{sid}/documents/{id}/download/{art}` | `client.SignerDocuments` |
-| Field definitions | `POST/GET /accounts/{id}/fields`, `GET/PUT/DELETE /accounts/{id}/fields/{fid}`, `POST .../validate[-multiple]`, `GET /field-types` | `client.Fields` |
-| Webhooks | `GET/PUT /accounts/{id}/webhooks/subscriptions`, `PUT /accounts/{id}/webhooks/inactivate`, `GET /accounts/{id}/webhooks`, `POST /accounts/{id}/webhooks/{did}/retry`, `GET /webhooks/event-types` | `client.Webhooks` |
+| `PublicDocuments.GetDocument` | `PublicDocuments.Get` (deprecated) | Returns the documented full `models.Document`. |
+| `PublicDocuments.SendTokenWithRequest` or `SendTokenByEmail` | `PublicDocuments.SendToken` (deprecated) | Supports the documented optional body and envelope-only response; email-bearing requests have a narrowly scoped legacy-sandbox retry. |
+| `Assignments.EstimateCostWithRequest` | `Assignments.EstimateCost` (deprecated) | Uses the dedicated estimate body instead of the larger assignment-create body. |
+| `Assignments.GetSigningInfoWithTerms` | `Assignments.GetSigningInfo` | Adds the documented `has_accepted_terms` query flag when it is needed. |
+| `Assignments.ResetExpirationWithRequest` | `Assignments.ResetExpiration` (deprecated) | Omits an unset `expires_at` as documented; the earlier nil pointer sends legacy JSON null. |
+| `Signers.AcceptTermsOnly` | `Signers.AcceptTerms` (deprecated) | Handles the documented envelope-only response. |
+| `Signers.ConfirmDataAndGet` | `Signers.ConfirmData` (deprecated) | Returns the documented signer payload. |
+| `Signers.UploadSignatureWithReuse` | `Signers.UploadSignature` | Adds the documented `reuse` query flag; both send PNG bytes. |
+| `SignerDocuments.SearchAll` | `SignerDocuments.Search` (deprecated) | Uses only the documented `search` query and returns a non-paginated slice. |
+| `Fields.ValidateAuthenticated` and `ValidateMultipleAuthenticated` | `Fields.Validate` and `ValidateMultiple` (deprecated) | Uses API-key or bearer authentication without an undocumented signer code. |
+| `Documents.DetachTagWithResult` | `Documents.DetachTag` | Returns the documented `{detached}` payload. |
+| `Tags.DeleteWithResult` | `Tags.Delete` | Returns the documented `{deleted}` payload. |
 
-Subscriptions are turned off with `client.Webhooks.Inactivate`. The `DELETE /accounts/{id}/webhooks/subscriptions` route mentioned in passing by the docs is not implemented by the live API (it returns 404), so the SDK does not expose it.
+Earlier signatures remain available so existing programs continue to compile. Deprecated methods should be migrated when convenient; no documented API operation was removed.
 
-**Intentionally excluded.** A few documented operations are deliberately not exposed:
+## Responses, errors, and downloads
 
-- **Destructive account administration** — `POST /accounts` (create), `DELETE /accounts/{id}` (delete), and account logo upload/removal (`POST/DELETE /accounts/{id}/logo`) are production-only operations that can create or destroy whole workspaces. The SDK exposes only the non-destructive account endpoints above.
-- **Browser-only OAuth redirects** — `GET /auth/authenticate` (302 to the provider) and `GET /login-callback` (front-end token callback) are meant for a browser, not a backend. Instead of an unusable HTTP method, `client.Authentication.SocialLoginURL(provider)` builds the authorize URL to open in a browser.
+JSON responses use Assinafy's `{status,message,data}` envelope. Resource methods unwrap `data` into model values. List methods that receive pagination headers return `models.PaginatedResult[T]`; non-paginated list methods return slices.
+
+API failures are returned as `*errors.APIError` with `StatusCode`, `Message`, and optional `Data`. Transport failures are wrapped in `*errors.NetworkError`. Use `errors.IsStatusCode(err, code)` and `errors.IsRetryable(err)` for status and retry handling.
+
+PDF and image endpoints return raw `[]byte`. The caller is responsible for storing the bytes with the appropriate filename and permissions. Supported document artifacts are `original`, `certificated`, `certificate-page`, `pades`, and `bundle`.
+
+## Webhooks
+
+`NewWebhookVerifier(secret).ExtractEvent(body)` decodes a delivered body into `models.WebhookPayload`. Subscription and dispatch-history operations are available through `client.Webhooks`.
+
+`WebhookVerifier.Verify` is a compatibility extension implementing `hex(HMAC-SHA256(secret, body))`. The current Assinafy OpenAPI contract does not define a signature header, shared secret, or HMAC algorithm, so do not treat that helper as official verification guidance without a separate agreement with Assinafy. See [compatibility extensions](docs/API.md#compatibility-extensions).
 
 ## Development
 
 ```bash
+go build ./...
 go test -race ./...
 go vet ./...
 gofmt -l .
-go build ./...
 ```
 
-CI runs the same checks on every push and pull request via GitHub Actions (`actions/checkout@v6`, `actions/setup-go@v6`, `actions/upload-artifact@v7`, `golangci/golangci-lint-action@v9` with `golangci-lint v2.12`).
+GitHub Actions run these checks for pushes and pull requests using pinned action revisions. The repository may be mirrored from GitLab; GitHub remains the CI execution target represented by the badge above.
 
 ### Integration tests
 
-Tests prefixed `TestIntegration` hit the live API and are skipped unless both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They cover the read-only endpoints, full create/get/update/delete lifecycles for signers, tags, and field definitions, the account list/get/theme/logo reads plus a non-destructive account-update round trip, a document upload + estimate-cost round trip, the document search and rename endpoints, artifact/page downloads, signature-hash verification, the document-tag attach/detach flow, the assignments list, and the webhook subscription update/inactivate lifecycle.
+`TestIntegration*` tests are skipped unless `ASSINAFY_RUN_INTEGRATION_TESTS=1` and both `ASSINAFY_API_KEY` and `ASSINAFY_ACCOUNT_ID` are set. They default to `https://sandbox.assinafy.com.br/v1`, and they refuse the production host unless `ASSINAFY_RUN_PRODUCTION_TESTS=1` is also set.
 
-Signer-facing endpoints that require a live signer access code (`AcceptTerms`, `VerifyEmail`, `ConfirmData`, signature upload/download, signer-document search) and the social-login link are exercised by unit tests, since a valid access code only exists inside a real signing session.
+The standard integration suite is not read-only: it creates, updates, and deletes temporary sandbox resources and, when the route is available, round-trips a notification preference with cleanup. Use a disposable sandbox account. Two higher-impact flows require separate opt-in flags.
+
+The current sandbox deployment returns route-level 404 for account statistics, user statistics, and user notification preferences even though the production OpenAPI declares them. Set `ASSINAFY_ALLOW_MISSING_DOCUMENTED_ROUTES=1` to skip those sandbox 404 responses; without that explicit allowance they fail. The operations remain unit-tested, documented, and available through the SDK.
 
 | Variable | Purpose |
 | --- | --- |
-| `ASSINAFY_API_KEY` | API key (required to run). |
-| `ASSINAFY_ACCOUNT_ID` | Workspace/account ID (required to run). |
-| `ASSINAFY_BASE_URL` | Optional base URL override; set to `https://sandbox.assinafy.com.br/v1` to target the sandbox. Defaults to production. |
-| `ASSINAFY_RUN_ASSIGNMENT_TESTS` | Set to `1` to also run the full virtual-assignment lifecycle. **This sends real signature-request emails**, so it is opt-in. |
+| `ASSINAFY_RUN_INTEGRATION_TESTS=1` | Explicitly enables the mutating integration suite. |
+| `ASSINAFY_API_KEY` | Sandbox API key; required to run integration tests. |
+| `ASSINAFY_ACCOUNT_ID` | Sandbox account ID; required to run integration tests. |
+| `ASSINAFY_BASE_URL` | Optional override; omitted values use `assinafy.SandboxBaseURL`. |
+| `ASSINAFY_ALLOW_MISSING_DOCUMENTED_ROUTES=1` | Allows the current sandbox's documented stats/preferences route 404s to skip; the manual GitHub workflow sets this explicitly. |
+| `ASSINAFY_RUN_ASSIGNMENT_TESTS=1` | Creates and removes a disposable account for the full assignment flow, which sends real initial signature-request, public-token, and resend emails. |
+| `ASSINAFY_RUN_ACCOUNT_ADMIN_TESTS=1` | Enables account create/update/logo/delete lifecycle coverage. |
+| `ASSINAFY_RUN_PRODUCTION_TESTS=1` | Removes the production safety guard. It does not make mutating tests read-only. |
 
 ```bash
-ASSINAFY_API_KEY=... ASSINAFY_ACCOUNT_ID=... \
-ASSINAFY_BASE_URL=https://sandbox.assinafy.com.br/v1 \
+ASSINAFY_RUN_INTEGRATION_TESTS=1 ASSINAFY_API_KEY=... ASSINAFY_ACCOUNT_ID=... \
   go test -race -run '^TestIntegration' -v .
 ```
+
+Never enable production execution or the opt-in flows unless their side effects are intended. Signer-facing methods that require a live `signer-access-code` are contract-tested locally and exercised live only within an appropriate signing session.
+
+The suite does not create or revoke the credential it is currently using, change/reset a user's password, or fabricate social-provider, password-reset, or signer-access tokens. Those operations have strict local method/path/auth/body/response contract tests; positive live tests require the corresponding purpose-specific credentials.
 
 ## License
 

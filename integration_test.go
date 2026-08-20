@@ -2,6 +2,7 @@ package assinafy
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -11,22 +12,33 @@ import (
 )
 
 // integrationClient builds a client from environment variables. The test is
-// skipped when the credentials are not present so unit-only CI runs pass.
+// skipped unless explicitly enabled and credentials are present, so ordinary
+// unit-test runs cannot mutate an account accidentally.
 //
-// ASSINAFY_BASE_URL optionally overrides the API base URL; set it to
-// assinafy.SandboxBaseURL ("https://sandbox.assinafy.com.br/v1") to run against
-// the sandbox. It defaults to the production base URL.
+// ASSINAFY_BASE_URL optionally overrides the API base URL and defaults to the
+// sandbox. Production requires ASSINAFY_RUN_PRODUCTION_TESTS=1 because these
+// tests create, update, send, and delete real resources.
 func integrationClient(t *testing.T) (*Client, string) {
 	t.Helper()
+	if os.Getenv("ASSINAFY_RUN_INTEGRATION_TESTS") != "1" {
+		t.Skip("set ASSINAFY_RUN_INTEGRATION_TESTS=1 to run mutating integration tests")
+	}
 	apiKey := os.Getenv("ASSINAFY_API_KEY")
 	accountID := os.Getenv("ASSINAFY_ACCOUNT_ID")
 	if apiKey == "" || accountID == "" {
 		t.Skip("ASSINAFY_API_KEY and ASSINAFY_ACCOUNT_ID must be set for integration tests")
 	}
+	baseURL := os.Getenv("ASSINAFY_BASE_URL")
+	if baseURL == "" {
+		baseURL = SandboxBaseURL
+	}
+	if isProductionBaseURL(baseURL) && os.Getenv("ASSINAFY_RUN_PRODUCTION_TESTS") != "1" {
+		t.Fatal("refusing to run integration tests against production without ASSINAFY_RUN_PRODUCTION_TESTS=1")
+	}
 	c, err := NewClient(ClientOptions{
 		APIKey:    apiKey,
 		AccountID: accountID,
-		BaseURL:   os.Getenv("ASSINAFY_BASE_URL"),
+		BaseURL:   baseURL,
 		// 60s tolerates cold-start latency on the first request to the sandbox
 		// (Cloudflare/origin warm-up) that occasionally exceeds a tighter timeout.
 		Timeout: 60 * time.Second,
@@ -35,6 +47,28 @@ func integrationClient(t *testing.T) (*Client, string) {
 		t.Fatalf("NewClient: %v", err)
 	}
 	return c, accountID
+}
+
+func isProductionBaseURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") == "api.assinafy.com.br"
+}
+
+func TestProductionBaseURLGuard(t *testing.T) {
+	for _, raw := range []string{
+		DefaultBaseURL,
+		"https://API.ASSINAFY.COM.BR:443/v1/",
+		"https://api.assinafy.com.br./v1",
+	} {
+		if !isProductionBaseURL(raw) {
+			t.Errorf("isProductionBaseURL(%q) = false", raw)
+		}
+	}
+	for _, raw := range []string{SandboxBaseURL, "https://api.assinafy.com.br.example/v1", "://bad"} {
+		if isProductionBaseURL(raw) {
+			t.Errorf("isProductionBaseURL(%q) = true", raw)
+		}
+	}
 }
 
 func TestIntegrationDocumentStatuses(t *testing.T) {
@@ -179,7 +213,7 @@ func TestIntegrationSignerLifecycle(t *testing.T) {
 			return
 		}
 		if err := c.Signers.Delete(context.Background(), "", signer.ID); err != nil {
-			t.Logf("cleanup Signers.Delete(%s): %v", signer.ID, err)
+			t.Errorf("cleanup Signers.Delete(%s): %v", signer.ID, err)
 		}
 	})
 
@@ -229,18 +263,18 @@ func TestIntegrationDocumentUploadAndEstimateCost(t *testing.T) {
 			}
 			time.Sleep(2 * time.Second)
 		}
-		t.Logf("cleanup: could not delete %s within timeout (still processing)", doc.ID)
+		t.Errorf("cleanup: could not delete %s within timeout (still processing)", doc.ID)
 	})
 	if doc.ID == "" {
 		t.Fatal("expected non-empty document id")
 	}
 
-	estimate, err := c.Assignments.EstimateCost(ctx, doc.ID, &models.CreateAssignmentRequest{
+	estimate, err := c.Assignments.EstimateCostWithRequest(ctx, doc.ID, &models.EstimateAssignmentCostRequest{
 		Method:  models.MethodVirtual,
-		Signers: []models.SignerReference{{}},
+		Signers: []models.EstimateAssignmentCostSigner{{}},
 	})
 	if err != nil {
-		t.Fatalf("Assignments.EstimateCost: %v", err)
+		t.Fatalf("Assignments.EstimateCostWithRequest: %v", err)
 	}
 	if estimate.Documents != 1 {
 		t.Errorf("estimate.Documents = %v, want 1", estimate.Documents)
@@ -256,20 +290,22 @@ func TestIntegrationTagLifecycle(t *testing.T) {
 	defer cancel()
 
 	name := "go-sdk-audit-" + time.Now().UTC().Format("20060102T150405Z")
-	color := "ff8800"
-	tag, err := c.Tags.Create(ctx, "", &models.CreateTagRequest{Name: name, Color: &color})
+	tag, err := c.Tags.Create(ctx, "", &models.CreateTagRequest{Name: name, ClearColor: true})
 	if err != nil {
 		t.Fatalf("Tags.Create: %v", err)
 	}
 	t.Cleanup(func() {
 		if tag != nil {
 			if err := c.Tags.Delete(context.Background(), "", tag.ID, true); err != nil {
-				t.Logf("cleanup Tags.Delete(%s): %v", tag.ID, err)
+				t.Errorf("cleanup Tags.Delete(%s): %v", tag.ID, err)
 			}
 		}
 	})
 	if tag.ID == "" || tag.Name != name {
 		t.Fatalf("Tags.Create returned %+v", tag)
+	}
+	if tag.Color != nil {
+		t.Errorf("Tags.Create explicit null color returned %v", *tag.Color)
 	}
 
 	list, err := c.Tags.List(ctx, "", name)
@@ -295,6 +331,14 @@ func TestIntegrationTagLifecycle(t *testing.T) {
 	if updated.Name != newName || updated.Color == nil || *updated.Color != newColor {
 		t.Errorf("Tags.Update returned %+v", updated)
 	}
+	deleted, err := c.Tags.DeleteWithResult(ctx, "", tag.ID, false)
+	if err != nil {
+		t.Fatalf("Tags.DeleteWithResult: %v", err)
+	}
+	if !deleted.Deleted {
+		t.Errorf("Tags.DeleteWithResult returned %+v", deleted)
+	}
+	tag = nil
 }
 
 // TestIntegrationDocumentTags uploads a document, replaces and appends tags,
@@ -318,10 +362,15 @@ func TestIntegrationDocumentTags(t *testing.T) {
 		for _, name := range []string{tagA, tagB} {
 			tags, err := c.Tags.List(context.Background(), "", name)
 			if err != nil {
+				t.Errorf("cleanup Tags.List(%q): %v", name, err)
 				continue
 			}
 			for _, tg := range tags {
-				_ = c.Tags.Delete(context.Background(), "", tg.ID, true)
+				if tg.Name == name {
+					if err := c.Tags.Delete(context.Background(), "", tg.ID, true); err != nil {
+						t.Errorf("cleanup Tags.Delete(%s): %v", tg.ID, err)
+					}
+				}
 			}
 		}
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -332,6 +381,7 @@ func TestIntegrationDocumentTags(t *testing.T) {
 			}
 			time.Sleep(2 * time.Second)
 		}
+		t.Errorf("cleanup: could not delete %s within timeout", doc.ID)
 	})
 
 	replaced, err := c.Documents.ReplaceTags(ctx, "", doc.ID, []string{tagA})
@@ -358,8 +408,12 @@ func TestIntegrationDocumentTags(t *testing.T) {
 		t.Errorf("ListTags returned %d tags, want 2: %+v", len(listed), listed)
 	}
 
-	if err := c.Documents.DetachTag(ctx, "", doc.ID, listed[0].ID); err != nil {
-		t.Fatalf("Documents.DetachTag: %v", err)
+	detached, err := c.Documents.DetachTagWithResult(ctx, "", doc.ID, listed[0].ID)
+	if err != nil {
+		t.Fatalf("Documents.DetachTagWithResult: %v", err)
+	}
+	if !detached.Detached {
+		t.Errorf("Documents.DetachTagWithResult returned %+v", detached)
 	}
 	remaining, err := c.Documents.ListTags(ctx, "", doc.ID)
 	if err != nil {
@@ -380,9 +434,11 @@ func TestIntegrationFieldLifecycle(t *testing.T) {
 
 	name := "go-sdk-audit-" + time.Now().UTC().Format("20060102T150405Z")
 	required := true
+	regex := "/^.+$/"
 	field, err := c.Fields.Create(ctx, "", &models.CreateFieldDefinitionRequest{
 		Type:       "text",
 		Name:       name,
+		Regex:      &regex,
 		IsRequired: &required,
 	})
 	if err != nil {
@@ -391,7 +447,7 @@ func TestIntegrationFieldLifecycle(t *testing.T) {
 	t.Cleanup(func() {
 		if field != nil {
 			if err := c.Fields.Delete(context.Background(), "", field.ID); err != nil {
-				t.Logf("cleanup Fields.Delete(%s): %v", field.ID, err)
+				t.Errorf("cleanup Fields.Delete(%s): %v", field.ID, err)
 			}
 		}
 	})
@@ -406,14 +462,37 @@ func TestIntegrationFieldLifecycle(t *testing.T) {
 	if got.ID != field.ID {
 		t.Errorf("Fields.Get id = %q, want %q", got.ID, field.ID)
 	}
+	validated, err := c.Fields.ValidateAuthenticated(ctx, "", field.ID, &models.ValidateFieldRequest{Value: "valid"})
+	if err != nil {
+		t.Fatalf("Fields.ValidateAuthenticated: %v", err)
+	}
+	if !validated.Success {
+		t.Errorf("Fields.ValidateAuthenticated returned %+v", validated)
+	}
+	validatedMany, err := c.Fields.ValidateMultipleAuthenticated(ctx, "", []models.ValidateMultipleFieldsRequest{{
+		FieldID: field.ID,
+		Value:   "valid",
+	}})
+	if err != nil {
+		t.Fatalf("Fields.ValidateMultipleAuthenticated: %v", err)
+	}
+	if len(validatedMany) != 1 || !validatedMany[0].Success || validatedMany[0].FieldID != field.ID {
+		t.Errorf("Fields.ValidateMultipleAuthenticated returned %+v", validatedMany)
+	}
 
 	newName := name + "-renamed"
-	updated, err := c.Fields.Update(ctx, "", field.ID, &models.UpdateFieldDefinitionRequest{Name: &newName})
+	updated, err := c.Fields.Update(ctx, "", field.ID, &models.UpdateFieldDefinitionRequest{
+		Name:       &newName,
+		ClearRegex: true,
+	})
 	if err != nil {
 		t.Fatalf("Fields.Update: %v", err)
 	}
 	if updated.Name != newName {
 		t.Errorf("Fields.Update name = %q, want %q", updated.Name, newName)
+	}
+	if updated.Regex != nil {
+		t.Errorf("Fields.Update regex = %q, want null", *updated.Regex)
 	}
 }
 

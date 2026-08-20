@@ -18,15 +18,26 @@ const (
 // endpoint (GET /accounts/{id}) includes PrimaryColor and SecondaryColor. Fields
 // absent from a given response stay at their zero value.
 type Account struct {
-	Resource               string                 `json:"resource,omitempty"`
-	ID                     string                 `json:"id"`
-	Name                   string                 `json:"name"`
-	PrimaryColor           *string                `json:"primary_color,omitempty"`
-	SecondaryColor         *string                `json:"secondary_color,omitempty"`
+	// Resource is the API resource discriminator when that endpoint includes it.
+	Resource string `json:"resource,omitempty"`
+	// ID is the account UUID used in account-scoped endpoint paths.
+	ID string `json:"id"`
+	// Name is the account's display name.
+	Name string `json:"name"`
+	// PrimaryColor is the optional 6-character hexadecimal brand color without
+	// a leading "#"; nil means the endpoint omitted it or no color is set.
+	PrimaryColor *string `json:"primary_color,omitempty"`
+	// SecondaryColor is the optional 6-character hexadecimal accent color
+	// without a leading "#"; nil means the endpoint omitted it or none is set.
+	SecondaryColor *string `json:"secondary_color,omitempty"`
+	// NotificationSenderType is "User" or "Account" when returned.
 	NotificationSenderType NotificationSenderType `json:"notification_sender_type,omitempty"`
-	Roles                  []string               `json:"roles,omitempty"`
-	IsDeleteAllowed        bool                   `json:"is_delete_allowed"`
-	CreatedAt              Timestamp              `json:"created_at"`
+	// Roles lists the authenticated user's roles in this account.
+	Roles []string `json:"roles,omitempty"`
+	// IsDeleteAllowed reports whether the authenticated user may delete the account.
+	IsDeleteAllowed bool `json:"is_delete_allowed"`
+	// CreatedAt is the account creation date-time.
+	CreatedAt Timestamp `json:"created_at"`
 }
 
 // AccountTheme is the branding theme returned by GET /accounts/{id}/theme.
@@ -39,6 +50,15 @@ type AccountTheme struct {
 	SecondaryColor *string `json:"secondary_color,omitempty"`
 	// Logo is the URL to the account logo image, or nil when none is set.
 	Logo *string `json:"logo,omitempty"`
+}
+
+// CreateAccountRequest is the body for POST /accounts.
+type CreateAccountRequest struct {
+	// Name is the required new workspace display name.
+	Name string `json:"name"`
+	// NotificationSenderType controls whose name signers see as the sender.
+	// Nil uses the API default, NotificationSenderUser.
+	NotificationSenderType *NotificationSenderType `json:"notification_sender_type,omitempty"`
 }
 
 // UpdateAccountRequest is the body for PUT /accounts/{account_id}. A nil field

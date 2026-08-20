@@ -20,8 +20,11 @@
 .DS_Store
 
 # Environment
-.env
-.env.local
+.env*
+!.env.example
+
+# Local agent settings
+.claude/settings.local.json
 
 # Build output
 bin/
