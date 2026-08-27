@@ -18,10 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
 	"github.com/assinafy/golang-sdk/resources"
@@ -34,7 +36,7 @@ var (
 	// ErrNoSigners is returned by UploadAndRequestSignatures when no signers are provided.
 	ErrNoSigners = errors.New("assinafy: at least one signer is required")
 	// ErrInvalidSigner is returned by UploadAndRequestSignatures when a signer
-	// has no name or no email/WhatsApp contact.
+	// has no name, no contact, an invalid email, or a non-E.164 WhatsApp number.
 	ErrInvalidSigner = errors.New("assinafy: signer must have a name and an email or WhatsApp contact")
 )
 
@@ -86,8 +88,8 @@ type ClientOptions struct {
 	APIKey string
 	// Token is a JWT access token sent as Authorization: Bearer when APIKey is empty.
 	Token string
-	// AccountID is the optional default workspace UUID. Account-scoped methods use
-	// it when their accountID argument is empty; the API rejects an empty result.
+	// AccountID is the optional default account identifier. Account-scoped methods
+	// use it when their accountID argument is empty; an empty result is rejected locally.
 	AccountID string
 	// BaseURL overrides the API root. It must be an absolute HTTP(S) URL without
 	// credentials, query, or fragment and defaults to DefaultBaseURL. Use
@@ -156,12 +158,32 @@ func (c *Client) UploadAndRequestSignatures(
 		return nil, ErrNoSigners
 	}
 	for i, signer := range signers {
-		if strings.TrimSpace(signer.Name) == "" {
+		name := strings.TrimSpace(signer.Name)
+		email := strings.TrimSpace(signer.Email)
+		phone := strings.TrimSpace(signer.WhatsAppPhoneNumber)
+		if name == "" {
 			return nil, fmt.Errorf("%w: signer %d has no name", ErrInvalidSigner, i+1)
 		}
-		if strings.TrimSpace(signer.Email) == "" && strings.TrimSpace(signer.WhatsAppPhoneNumber) == "" {
+		if email == "" && phone == "" {
 			return nil, fmt.Errorf("%w: signer %d has no email or WhatsApp contact", ErrInvalidSigner, i+1)
 		}
+		if email != "" {
+			address, err := mail.ParseAddress(email)
+			if err != nil || address.Address != email {
+				return nil, fmt.Errorf("%w: signer %d has an invalid email", ErrInvalidSigner, i+1)
+			}
+		}
+		if phone != "" && !isE164(phone) {
+			return nil, fmt.Errorf("%w: signer %d has a non-E.164 WhatsApp number", ErrInvalidSigner, i+1)
+		}
+	}
+	var normalizedExpiresAt *string
+	if expiresAt != nil {
+		value := strings.TrimSpace(*expiresAt)
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			return nil, fmt.Errorf("%w: expiresAt must be an RFC 3339 date-time", sdkerrors.ErrInvalidInput)
+		}
+		normalizedExpiresAt = &value
 	}
 	if accountID == "" {
 		accountID = c.accountID
@@ -209,8 +231,8 @@ func (c *Client) UploadAndRequestSignatures(
 	if message != "" {
 		body.Message = &message
 	}
-	if expiresAt != nil {
-		body.ExpiresAt = expiresAt
+	if normalizedExpiresAt != nil {
+		body.ExpiresAt = normalizedExpiresAt
 	}
 
 	assignment, err := c.Assignments.Create(ctx, doc.ID, body)
@@ -219,4 +241,16 @@ func (c *Client) UploadAndRequestSignatures(
 	}
 	result.Assignment = assignment
 	return result, nil
+}
+
+func isE164(phone string) bool {
+	if len(phone) < 2 || len(phone) > 16 || phone[0] != '+' || phone[1] == '0' {
+		return false
+	}
+	for _, digit := range phone[1:] {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }

@@ -102,12 +102,12 @@ func TestRemainingExportedResourceWireMatrix(t *testing.T) {
 		{
 			name: "document upload", method: http.MethodPost, path: "/accounts/acc%2F1/documents", authenticated: true,
 			multipart: &multipartContract{
-				field: "file", filename: "contract.pdf", content: []byte("PDF"),
+				field: "file", filename: "contract.pdf", content: []byte("%PDF-1.1"),
 				values: map[string][]string{"name": {"contract.pdf"}, "source": {"test"}},
 			},
 			response: `{"status":200,"data":{"id":"document-1","name":"contract.pdf","status":"uploaded"}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
-				return NewDocumentResource(h, "acc/1").Upload(ctx, "", []byte("PDF"), "contract.pdf", map[string]string{"source": "test"})
+				return NewDocumentResource(h, "acc/1").Upload(ctx, "", []byte("%PDF-1.1"), "contract.pdf", map[string]string{"source": "test"})
 			},
 			want: &models.Document{ID: "document-1", Name: "contract.pdf", Status: models.StatusUploaded},
 		},
@@ -321,10 +321,10 @@ func TestRemainingExportedResourceWireMatrix(t *testing.T) {
 		{
 			name: "signer upload signature", method: http.MethodPost, path: "/signature",
 			query:   url.Values{"signer-access-code": {"sign-code"}, "type": {"signature"}},
-			rawBody: []byte{1, 2, 3}, contentType: "image/png",
+			rawBody: []byte("\x89PNG\r\n\x1a\n"), contentType: "image/png",
 			response: `{"status":200,"message":"stored"}`,
 			call: func(h *internal.HTTPClient) (any, error) {
-				return nil, NewSignerResource(h, "").UploadSignature(ctx, "sign-code", "signature", []byte{1, 2, 3})
+				return nil, NewSignerResource(h, "").UploadSignature(ctx, "sign-code", "signature", []byte("\x89PNG\r\n\x1a\n"))
 			},
 		},
 		{

@@ -8,7 +8,7 @@ import "encoding/json"
 type Tag struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the workspace tag UUID.
+	// ID is the account tag identifier.
 	ID string `json:"id"`
 	// Name is the case-insensitively unique workspace label.
 	Name string `json:"name"`

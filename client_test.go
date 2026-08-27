@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/models"
 )
 
@@ -73,14 +74,19 @@ func TestUploadAndRequestSignaturesValidatesSigners(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	invalidExpiration := "tomorrow"
 	tests := []struct {
-		name    string
-		signers []models.UploadAndRequestSignaturesSigner
-		want    error
+		name      string
+		signers   []models.UploadAndRequestSignaturesSigner
+		expiresAt *string
+		want      error
 	}{
 		{name: "none", want: ErrNoSigners},
 		{name: "blank name", signers: []models.UploadAndRequestSignaturesSigner{{Name: "  ", Email: "a@example.com"}}, want: ErrInvalidSigner},
 		{name: "no contact", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice"}}, want: ErrInvalidSigner},
+		{name: "invalid email", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", Email: "not an email"}}, want: ErrInvalidSigner},
+		{name: "invalid phone", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", WhatsAppPhoneNumber: "5511000000000"}}, want: ErrInvalidSigner},
+		{name: "invalid expiration", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", Email: "a@example.com"}}, expiresAt: &invalidExpiration, want: sdkerrors.ErrInvalidInput},
 		{
 			name: "validates all before upload",
 			signers: []models.UploadAndRequestSignaturesSigner{
@@ -92,7 +98,7 @@ func TestUploadAndRequestSignaturesValidatesSigners(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, got := c.UploadAndRequestSignatures(context.Background(), []byte("pdf"), "doc.pdf", tc.signers, "", nil, "")
+			_, got := c.UploadAndRequestSignatures(context.Background(), []byte("pdf"), "doc.pdf", tc.signers, "", tc.expiresAt, "")
 			if !errors.Is(got, tc.want) {
 				t.Errorf("error = %v, want errors.Is(_, %v)", got, tc.want)
 			}
@@ -123,7 +129,7 @@ func TestUploadAndRequestSignaturesSuccess(t *testing.T) {
 			}
 			defer func() { _ = file.Close() }()
 			content, err := io.ReadAll(file)
-			if err != nil || string(content) != "pdf" || header.Filename != "doc.pdf" || r.FormValue("name") != "doc.pdf" {
+			if err != nil || string(content) != "%PDF-1.1" || header.Filename != "doc.pdf" || r.FormValue("name") != "doc.pdf" {
 				t.Errorf("upload = content %q, filename %q, name %q, error %v", content, header.Filename, r.FormValue("name"), err)
 			}
 			_, _ = io.WriteString(w, `{"status":200,"data":{"id":"doc-1","name":"doc.pdf","status":"uploaded"}}`)
@@ -183,8 +189,8 @@ func TestUploadAndRequestSignaturesSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expiresAt := "2026-12-31T23:59:59Z"
-	result, err := c.UploadAndRequestSignatures(context.Background(), []byte("pdf"), "doc.pdf", []models.UploadAndRequestSignaturesSigner{
+	expiresAt := " 2026-12-31T23:59:59Z\t"
+	result, err := c.UploadAndRequestSignatures(context.Background(), []byte("%PDF-1.1"), "doc.pdf", []models.UploadAndRequestSignaturesSigner{
 		{Name: " Alice ", Email: " alice@example.com ", WhatsAppPhoneNumber: " +5511000000001 "},
 		{Name: "Bob", WhatsAppPhoneNumber: "+5511000000002"},
 	}, "Please sign", &expiresAt, "")
@@ -222,7 +228,7 @@ func TestUploadAndRequestSignaturesReturnsPartialResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := c.UploadAndRequestSignatures(context.Background(), []byte("pdf"), "doc.pdf", []models.UploadAndRequestSignaturesSigner{
+	result, err := c.UploadAndRequestSignatures(context.Background(), []byte("%PDF-1.1"), "doc.pdf", []models.UploadAndRequestSignaturesSigner{
 		{Name: "Alice", Email: "alice@example.com"},
 		{Name: "Bob", Email: "bob@example.com"},
 	}, "", nil, "")

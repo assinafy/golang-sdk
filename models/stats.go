@@ -29,9 +29,30 @@ type DocumentStatsRow struct {
 	DocumentsSent int `json:"documents_sent"`
 	// SignatureRequests is the total number of signer invitations in Period.
 	SignatureRequests int `json:"signature_requests"`
-	// SignatureRequestsEmail is the number of invitations sent by email.
+	// SignatureRequestsNotificationEmail counts requests notified by email.
+	SignatureRequestsNotificationEmail int `json:"signature_requests_notification_email"`
+	// SignatureRequestsNotificationWhatsApp counts requests notified by WhatsApp.
+	SignatureRequestsNotificationWhatsApp int `json:"signature_requests_notification_whatsapp"`
+	// SignatureRequestsNotificationBypass counts requests with no notification.
+	SignatureRequestsNotificationBypass int `json:"signature_requests_notification_bypass"`
+	// SignatureRequestsVerificationEmail counts requests verified by an email token.
+	SignatureRequestsVerificationEmail int `json:"signature_requests_verification_email"`
+	// SignatureRequestsVerificationWhatsApp counts requests verified by a WhatsApp token.
+	SignatureRequestsVerificationWhatsApp int `json:"signature_requests_verification_whatsapp"`
+	// SignatureRequestsVerificationBypass counts requests without token verification.
+	SignatureRequestsVerificationBypass int `json:"signature_requests_verification_bypass"`
+	// SignatureRequestsVerificationDigitalCertificate counts requests verified with
+	// an ICP-Brasil digital certificate.
+	SignatureRequestsVerificationDigitalCertificate int `json:"signature_requests_verification_digital_certificate"`
+	// SignatureRequestsEmail decodes the legacy email counter when returned by an
+	// older deployment.
+	// Deprecated: use SignatureRequestsNotificationEmail and
+	// SignatureRequestsVerificationEmail.
 	SignatureRequestsEmail int `json:"signature_requests_email"`
-	// SignatureRequestsWhatsApp is the number sent through WhatsApp.
+	// SignatureRequestsWhatsApp decodes the legacy WhatsApp counter when returned
+	// by an older deployment.
+	// Deprecated: use SignatureRequestsNotificationWhatsApp and
+	// SignatureRequestsVerificationWhatsApp.
 	SignatureRequestsWhatsApp int `json:"signature_requests_whatsapp"`
 	// SignatureRequestsViewed is the number of invitations viewed by signers.
 	SignatureRequestsViewed int `json:"signature_requests_viewed"`

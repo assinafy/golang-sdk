@@ -50,9 +50,16 @@ func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPCl
 					return errors.New("stopped after 10 consecutive requests")
 				}
 				if len(via) > 0 && (req.URL.Scheme != via[0].URL.Scheme || !strings.EqualFold(req.URL.Host, via[0].URL.Host)) {
+					downgrade := strings.EqualFold(via[0].URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https")
+					if downgrade || (via[0].Method != http.MethodGet && via[0].Method != http.MethodHead) || req.Body != nil {
+						return sdkerrors.ErrUnsafeRedirect
+					}
 					req.Header.Del("Authorization")
 					req.Header.Del("X-Api-Key")
 					req.Header.Del("Referer")
+					query := req.URL.Query()
+					query.Del("signer-access-code")
+					req.URL.RawQuery = query.Encode()
 				}
 				return nil
 			},
@@ -134,6 +141,9 @@ func (r *Request) Execute(ctx context.Context, result any) (*Response, error) {
 }
 
 func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response, error) {
+	if err := validatePath(r.path); err != nil {
+		return nil, err
+	}
 	target := c.baseURL + r.path
 	if len(r.query) > 0 {
 		target += "?" + r.query.Encode()
@@ -182,6 +192,19 @@ func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response,
 
 // UploadMultipart sends a multipart/form-data POST with a single file part.
 func (c *HTTPClient) UploadMultipart(ctx context.Context, path, fieldName, fileName string, fileContent []byte, formFields map[string]string, result any) (*Response, error) {
+	if err := validatePath(path); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(fieldName) == "" {
+		return nil, fmt.Errorf("%w: multipart field name is empty", sdkerrors.ErrInvalidInput)
+	}
+	if strings.TrimSpace(fileName) == "" {
+		return nil, fmt.Errorf("%w: upload file name is empty", sdkerrors.ErrInvalidInput)
+	}
+	if len(fileContent) == 0 {
+		return nil, fmt.Errorf("%w: upload file is empty", sdkerrors.ErrInvalidInput)
+	}
+
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
@@ -231,6 +254,9 @@ func (c *HTTPClient) DownloadUnauthenticated(ctx context.Context, path string, q
 }
 
 func (c *HTTPClient) download(ctx context.Context, path string, query map[string]string, noAuth bool) ([]byte, error) {
+	if err := validatePath(path); err != nil {
+		return nil, err
+	}
 	target := c.baseURL + path
 	if len(query) > 0 {
 		q := url.Values{}
@@ -254,6 +280,7 @@ func (c *HTTPClient) download(ctx context.Context, path string, query map[string
 		}
 		req.Header[k] = append(req.Header[k], vs...)
 	}
+	req.Header.Set("Accept", "*/*")
 
 	resp, err := c.httpc.Do(req)
 	if err != nil {
@@ -300,12 +327,34 @@ func redactSignerAccessCode(rawURL string) string {
 	return u.String()
 }
 
+func validatePath(path string) error {
+	if path == "/" {
+		return nil
+	}
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("%w: request path must start with a slash", sdkerrors.ErrInvalidInput)
+	}
+	for _, segment := range strings.Split(path[1:], "/") {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil {
+			return fmt.Errorf("%w: request path contains an invalid parameter", sdkerrors.ErrInvalidInput)
+		}
+		for _, part := range strings.Split(strings.ReplaceAll(decoded, "\\", "/"), "/") {
+			if strings.TrimSpace(part) == "" || part == "." || part == ".." {
+				return fmt.Errorf("%w: request path contains an invalid parameter", sdkerrors.ErrInvalidInput)
+			}
+		}
+	}
+	return nil
+}
+
 // envelope mirrors the shared response wrapper documented at
 // https://api.assinafy.com.br/v1/docs.
 type envelope struct {
-	Status  json.RawMessage `json:"status"`
-	Message string          `json:"message"`
-	Data    json.RawMessage `json:"data"`
+	Status       json.RawMessage                 `json:"status"`
+	Message      string                          `json:"message"`
+	Data         json.RawMessage                 `json:"data"`
+	Restrictions []sdkerrors.DeletionRestriction `json:"restrictions"`
 }
 
 func parseResponse(resp *http.Response, result any) (*Response, error) {
@@ -356,7 +405,12 @@ func parseResponse(resp *http.Response, result any) (*Response, error) {
 		if !httpFailed && envelopeFailed {
 			statusCode = envStatus
 		}
-		apiErr := &sdkerrors.APIError{StatusCode: statusCode, Message: env.Message, Headers: resp.Header.Clone()}
+		apiErr := &sdkerrors.APIError{
+			StatusCode:   statusCode,
+			Message:      env.Message,
+			Restrictions: env.Restrictions,
+			Headers:      resp.Header.Clone(),
+		}
 		if apiErr.Message == "" {
 			apiErr.Message = http.StatusText(statusCode)
 		}

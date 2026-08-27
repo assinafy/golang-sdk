@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,16 +245,22 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 
 	doc := uploadReadyDoc(t, c, ctx, account.ID, false)
 
-	emails := []string{"primary@example.test", "secondary@example.test"}
+	emails := []string{
+		strings.TrimSpace(os.Getenv("ASSINAFY_TEST_EMAIL_PRIMARY")),
+		strings.TrimSpace(os.Getenv("ASSINAFY_TEST_EMAIL_SECONDARY")),
+	}
+	if emails[0] == "" || emails[1] == "" {
+		t.Fatal("ASSINAFY_TEST_EMAIL_PRIMARY and ASSINAFY_TEST_EMAIL_SECONDARY are required for assignment tests")
+	}
 	signerRefs := make([]models.SignerReference, 0, len(emails))
-	for _, email := range emails {
+	for i, email := range emails {
 		email := email
 		signer, err := c.Signers.Create(ctx, account.ID, &models.CreateSignerRequest{
-			FullName: "Go SDK Audit Signer",
+			FullName: "Go SDK Sandbox Signer",
 			Email:    &email,
 		})
 		if err != nil {
-			t.Fatalf("Signers.Create(%s): %v", email, err)
+			t.Fatalf("Signers.Create recipient %d: %v", i+1, err)
 		}
 		signerRefs = append(signerRefs, models.SignerReference{
 			ID:                  signer.ID,
@@ -262,7 +269,7 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 		})
 	}
 
-	message := "Assinafy Go SDK audit — please disregard this test request."
+	message := "Assinafy Go SDK sandbox test — no action is required."
 	assignment, err := c.Assignments.Create(ctx, doc.ID, &models.CreateAssignmentRequest{
 		Method:  models.MethodVirtual,
 		Signers: signerRefs,

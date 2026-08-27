@@ -53,11 +53,9 @@ func (r *WebhookResource) GetSubscription(ctx context.Context, accountID string)
 	return &out, nil
 }
 
-// Inactivate disables the workspace webhook subscription. This is the supported
-// way to stop receiving webhook deliveries; the DELETE subscriptions route the
-// docs mention in passing is not implemented by the live API (returns 404).
-// It requires client authentication, returns the updated WebhookSubscription,
-// and uses the configured default for an empty accountID.
+// Inactivate disables the account webhook subscription. It requires client
+// authentication, returns the updated WebhookSubscription, and uses the
+// configured default for an empty accountID.
 // PUT /accounts/{account_id}/webhooks/inactivate.
 func (r *WebhookResource) Inactivate(ctx context.Context, accountID string) (*models.WebhookSubscription, error) {
 	accountID = resolveAccountID(accountID, r.accountID)

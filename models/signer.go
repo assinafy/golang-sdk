@@ -4,7 +4,7 @@ package models
 type Signer struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the signer UUID.
+	// ID is the signer identifier.
 	ID string `json:"id"`
 	// FullName is the signer's display name.
 	FullName string `json:"full_name"`
@@ -94,7 +94,7 @@ type ConfirmSignerDataRequest struct {
 
 // SignerReference identifies a signer inside a CreateAssignmentRequest.
 type SignerReference struct {
-	// ID is the required existing signer UUID.
+	// ID is the required existing signer identifier.
 	ID string `json:"id"`
 	// VerificationMethod is an optional API verification-method code.
 	VerificationMethod string `json:"verification_method,omitempty"`

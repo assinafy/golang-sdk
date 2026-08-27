@@ -23,12 +23,8 @@ func NewAssignmentResource(httpClient *internal.HTTPClient) *AssignmentResource 
 }
 
 // List returns a page of assignments for the authenticated user's current
-// account, paginated via the X-Pagination-* response headers. Page and per-page
-// are the current documented parameters; populated shared search/sort fields are
-// retained as compatibility queries.
-//
-// The OpenAPI permits an API key or bearer token. The sandbox currently requires
-// user current-account context, so an API key can receive a 400 there.
+// account, paginated via the X-Pagination-* response headers. It sends page,
+// per-page, and any populated shared search and sort parameters.
 // GET /assignments.
 func (r *AssignmentResource) List(ctx context.Context, params *models.ListParams) (*models.PaginatedResult[models.Assignment], error) {
 	var out []models.Assignment
@@ -157,7 +153,7 @@ func (r *AssignmentResource) Sign(ctx context.Context, documentID, assignmentID,
 	_, err := r.http.NewRequest(http.MethodPost, path).
 		WithoutAuth().
 		WithQuery("signer-access-code", signerAccessCode).
-		WithBody(items).
+		WithBody(nonNil(items)).
 		Execute(ctx, nil)
 	return err
 }

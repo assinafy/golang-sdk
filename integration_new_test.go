@@ -157,9 +157,7 @@ func TestIntegrationDocumentRename(t *testing.T) {
 }
 
 // TestIntegrationAssignmentsList exercises the account-wide assignments list.
-// With API-key auth the sandbox requires a current-account context and returns a
-// 400; with a user token it returns a page. Both outcomes prove the request
-// encoding and are accepted.
+// A positive response requires authenticated user current-account context.
 func TestIntegrationAssignmentsList(t *testing.T) {
 	c, _ := integrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -170,8 +168,7 @@ func TestIntegrationAssignmentsList(t *testing.T) {
 		if !sdkerrors.IsStatusCode(err, 400) || !strings.Contains(err.Error(), "contexto de conta") {
 			t.Fatalf("Assignments.List: unexpected error: %v", err)
 		}
-		t.Log("Assignments.List returned 400 (expected with API-key auth: needs current-account context)")
-		return
+		t.Skipf("positive Assignments.List response requires a user token: %v", err)
 	}
 	_ = page
 }

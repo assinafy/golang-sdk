@@ -5,7 +5,7 @@ package models
 // field is populated in every context — for example is_password_set is emitted
 // for webhook subjects but not by the login endpoints.
 type User struct {
-	// ID is the user UUID.
+	// ID is the user identifier.
 	ID string `json:"id"`
 	// Name is the user's display name.
 	Name string `json:"name"`

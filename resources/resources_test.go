@@ -3,13 +3,16 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
 )
@@ -478,5 +481,109 @@ func TestPathEscaping(t *testing.T) {
 	r := NewSignerResource(httpClient, "")
 	if _, err := r.Get(context.Background(), "acc/1", "s 1"); err != nil {
 		t.Fatalf("Get: %v", err)
+	}
+}
+
+func TestRequiredIDsAreValidatedBeforeSending(t *testing.T) {
+	httpClient := internal.NewHTTPClient("http://127.0.0.1:1", "key", "", time.Second)
+	for _, call := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"default account", func() error {
+			_, err := NewAccountResource(httpClient, "").Get(context.Background(), "")
+			return err
+		}},
+		{"document", func() error {
+			_, err := NewDocumentResource(httpClient, "account").Get(context.Background(), " ")
+			return err
+		}},
+		{"nested id", func() error {
+			_, err := NewSignerResource(httpClient, "account").Get(context.Background(), "", "")
+			return err
+		}},
+	} {
+		t.Run(call.name, func(t *testing.T) {
+			if err := call.fn(); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDocumentUploadValidation(t *testing.T) {
+	r := NewDocumentResource(internal.NewHTTPClient("http://127.0.0.1:1", "key", "", time.Second), "account")
+	for _, tc := range []struct {
+		name     string
+		content  []byte
+		fileName string
+	}{
+		{name: "empty file", fileName: "document.pdf"},
+		{name: "empty name", content: []byte("%PDF-1.1"), fileName: " "},
+		{name: "not pdf", content: []byte("plain text"), fileName: "document.pdf"},
+		{name: "too large", content: make([]byte, maxDocumentSize+1), fileName: "document.pdf"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := r.Upload(context.Background(), "", tc.content, tc.fileName, nil); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSignatureUploadValidation(t *testing.T) {
+	r := NewSignerResource(internal.NewHTTPClient("http://127.0.0.1:1", "key", "", time.Second), "")
+	for _, image := range [][]byte{nil, []byte("not a png")} {
+		if err := r.UploadSignature(context.Background(), "code", "signature", image); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+			t.Fatalf("error = %v", err)
+		}
+	}
+}
+
+func TestRequiredArrayBodiesEncodeAsArrays(t *testing.T) {
+	for _, tc := range []struct {
+		name, want, response string
+		call                 func(*internal.HTTPClient) error
+	}{
+		{"sign assignment", `[]`, "", func(h *internal.HTTPClient) error {
+			return NewAssignmentResource(h).Sign(context.Background(), "document", "assignment", "code", nil)
+		}},
+		{"sign multiple", `{"document_ids":[]}`, "", func(h *internal.HTTPClient) error {
+			return NewSignerDocumentResource(h).SignMultiple(context.Background(), "code", nil)
+		}},
+		{"decline multiple", `{"decline_reason":"reason","document_ids":[]}`, "", func(h *internal.HTTPClient) error {
+			return NewSignerDocumentResource(h).DeclineMultiple(context.Background(), "code", nil, "reason")
+		}},
+		{"validate multiple", `[]`, "", func(h *internal.HTTPClient) error {
+			_, err := NewFieldResource(h, "account").ValidateMultipleAuthenticated(context.Background(), "", nil)
+			return err
+		}},
+		{"create from template", `{"signers":[]}`, `{"status":200,"data":{}}`, func(h *internal.HTTPClient) error {
+			_, err := NewDocumentResource(h, "account").CreateFromTemplate(context.Background(), "", "template", nil, nil)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				var got, want any
+				if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+					t.Errorf("decode body: %v", err)
+				}
+				if err := json.Unmarshal([]byte(tc.want), &want); err != nil {
+					t.Fatalf("decode expected body: %v", err)
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("body = %#v, want %#v", got, want)
+				}
+				response := tc.response
+				if response == "" {
+					response = `{"status":200,"data":[]}`
+				}
+				_, _ = io.WriteString(w, response)
+			})
+			if err := tc.call(httpClient); err != nil {
+				t.Fatalf("call: %v", err)
+			}
+		})
 	}
 }

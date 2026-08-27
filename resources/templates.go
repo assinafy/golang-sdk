@@ -22,10 +22,9 @@ func NewTemplateResource(httpClient *internal.HTTPClient, accountID string) *Tem
 	return &TemplateResource{http: httpClient, accountID: accountID}
 }
 
-// List returns Template payloads and X-Pagination metadata. Search, page, and
-// per-page are documented; populated shared status, sort, and tag fields are
-// compatibility queries. It requires client authentication; an empty accountID
-// uses the configured default.
+// List returns Template payloads and X-Pagination metadata using search, page,
+// per-page, and any populated shared status, sort, and tag filters. It requires
+// client authentication; an empty accountID uses the configured default.
 // GET /accounts/{account_id}/templates.
 func (r *TemplateResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Template], error) {
 	accountID = resolveAccountID(accountID, r.accountID)
@@ -49,8 +48,7 @@ func (r *TemplateResource) List(ctx context.Context, accountID string, params *m
 
 // Get returns the authenticated Template detail payload, including roles, pages,
 // and default document tags when supplied by the API. An empty accountID uses
-// the configured default. This live compatibility route is absent from the
-// current OpenAPI; List is the only officially described template operation.
+// the configured default.
 // GET /accounts/{account_id}/templates/{template_id}.
 func (r *TemplateResource) Get(ctx context.Context, accountID, templateID string) (*models.Template, error) {
 	accountID = resolveAccountID(accountID, r.accountID)

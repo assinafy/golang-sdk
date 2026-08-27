@@ -162,7 +162,7 @@ func (r *FieldResource) validateMultiple(ctx context.Context, accountID, signerA
 	path := "/accounts/" + url.PathEscape(accountID) + "/fields/validate-multiple"
 	req := r.http.NewRequest(http.MethodPost, path).
 		WithQuery("signer-access-code", signerAccessCode).
-		WithBody(body)
+		WithBody(nonNil(body))
 	if signerAccessCode != "" {
 		req.WithoutAuth()
 	}

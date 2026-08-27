@@ -18,9 +18,9 @@ const (
 type Assignment struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the assignment UUID.
+	// ID is the assignment identifier.
 	ID string `json:"id"`
-	// DocumentID is the assigned document UUID when included by the endpoint.
+	// DocumentID is the assigned document identifier when included by the endpoint.
 	DocumentID string `json:"document_id,omitempty"`
 	// SenderEmail is the email address of the user who sent the assignment.
 	SenderEmail string `json:"sender_email,omitempty"`
@@ -54,7 +54,7 @@ type Assignment struct {
 
 // AssignmentItem is a single signer/field/page tuple inside an assignment.
 type AssignmentItem struct {
-	// ID is the assignment-item UUID used when submitting a signature value.
+	// ID is the assignment-item identifier used when submitting a signature value.
 	ID string `json:"id"`
 	// Page identifies the document page containing this item, or nil if omitted.
 	Page *DocumentPage `json:"page,omitempty"`
@@ -83,7 +83,7 @@ type AssignmentSummary struct {
 
 // SigningURL is one entry of the signing_urls array returned for virtual assignments.
 type SigningURL struct {
-	// SignerID is the UUID of the signer for whom URL was issued.
+	// SignerID identifies the signer for whom URL was issued.
 	SignerID string `json:"signer_id"`
 	// URL is the signer-specific absolute signing URI.
 	URL string `json:"url"`
@@ -207,19 +207,19 @@ type CostBreakdownItem struct {
 type ResendNotificationResult struct {
 	// IsSent reports whether the replacement invitation was dispatched.
 	IsSent bool `json:"is_sent"`
-	// DocumentID is the UUID of the affected document.
+	// DocumentID identifies the affected document.
 	DocumentID string `json:"document_id"`
-	// SignerID is the UUID of the notified signer.
+	// SignerID identifies the notified signer.
 	SignerID string `json:"signer_id"`
 }
 
 // SignDocumentItem is one filled field submitted to POST .../assignments/{aid}.
 type SignDocumentItem struct {
-	// ItemID is the required assignment-item UUID.
+	// ItemID is the required assignment-item identifier.
 	ItemID string `json:"itemId"`
-	// FieldID is the required field-definition UUID.
+	// FieldID is the required field-definition identifier.
 	FieldID string `json:"fieldId"`
-	// PageID is the required document-page UUID.
+	// PageID is the required document-page identifier.
 	PageID string `json:"pageId"`
 	// Value is the required field value submitted by the signer.
 	Value string `json:"value"`
@@ -238,7 +238,7 @@ type WhatsAppNotification struct {
 	Buttons []WhatsAppButton `json:"buttons"`
 	// PhoneNumber is the destination telephone number returned by the API.
 	PhoneNumber string `json:"phone_number"`
-	// SignerID is the destination signer's UUID.
+	// SignerID identifies the destination signer.
 	SignerID string `json:"signer_id"`
 }
 
