@@ -24,7 +24,7 @@
 !.env.example
 
 # Local agent settings
-.claude/settings.local.json
+.claude/
 
 # Build output
 bin/

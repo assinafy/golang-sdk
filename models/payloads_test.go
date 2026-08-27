@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestFullResponsePayloads(t *testing.T) {
+func TestFullResponsePayloadRoundTrips(t *testing.T) {
 	t.Run("document", func(t *testing.T) {
 		const fixture = `{
 			"resource":"document","id":"doc_1","account_id":"account_1","template_id":"template_1","name":"Agreement.pdf","status":"certificated",
