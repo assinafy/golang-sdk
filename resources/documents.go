@@ -78,24 +78,7 @@ func validateDocumentUpload(fileContent []byte, fileName string) error {
 // accountID uses the configured default.
 // GET /accounts/{account_id}/documents.
 func (r *DocumentResource) List(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
-	accountID = resolveAccountID(accountID, r.accountID)
-
-	var docs []models.Document
-	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/documents")
-	applyListParams(req, params)
-	if params != nil {
-		req.WithQuery("status", params.Status)
-		req.WithQuery("method", params.Method)
-		if len(params.Tags) > 0 {
-			req.WithQuery("tags", strings.Join(params.Tags, ","))
-		}
-	}
-
-	resp, err := req.Execute(ctx, &docs)
-	if err != nil {
-		return nil, err
-	}
-	return paginated(docs, resp), nil
+	return r.listDocuments(ctx, accountID, "/documents", params)
 }
 
 // Search returns matching Document payloads ordered by relevance with
@@ -104,10 +87,16 @@ func (r *DocumentResource) List(ctx context.Context, accountID string, params *m
 // client authentication and uses the default for an empty accountID.
 // GET /accounts/{account_id}/documents/search.
 func (r *DocumentResource) Search(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
+	return r.listDocuments(ctx, accountID, "/documents/search", params)
+}
+
+// listDocuments issues an account-scoped document listing at suffix, applying the
+// shared pagination parameters plus the status, method, and tag filters.
+func (r *DocumentResource) listDocuments(ctx context.Context, accountID, suffix string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
 	accountID = resolveAccountID(accountID, r.accountID)
 
 	var docs []models.Document
-	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/documents/search")
+	req := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+suffix)
 	applyListParams(req, params)
 	if params != nil {
 		req.WithQuery("status", params.Status)

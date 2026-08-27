@@ -13,7 +13,7 @@ This reference maps the Assinafy Go SDK to all 89 operations in the [API documen
 - Listed errors are the response codes declared for that operation. Non-2xx JSON failures become `*errors.APIError`; transport failures become `*errors.NetworkError`. Unsafe cross-origin mutation redirects wrap `errors.ErrUnsafeRedirect` and are never retried.
 - Request and response field names below are the wire-format JSON names. The [response payload reference](#response-payload-reference) expands every reusable response model.
 
-## Official operations
+## Operations
 
 ### Accounts — 10 operations
 
@@ -158,6 +158,22 @@ This reference maps the Assinafy Go SDK to all 89 operations in the [API documen
 | [GET /v1/webhooks/event-types](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fwebhooks%2Fevent-types) | API | `client.Webhooks.ListEventTypes(ctx)` | No body or query. | `data: []models.WebhookEventType` | Errors: 401, 500. Fields: `id`, `description`. |
 | [GET /v1/accounts/{accountId}/webhooks](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks) | API | `client.Webhooks.ListDispatches(ctx, accountID, params)` | Query: `event?: string`; `delivered?: "true" or "false"`; `from?: Unix integer` (after); `to?: Unix integer` (before); `page?: integer` (default 1); `per-page?: integer` (default 20; SDK clamps to 100). | `models.PaginatedResult[models.WebhookDispatch]` | Errors: 401, 500. |
 | [POST /v1/accounts/{accountId}/webhooks/{historyId}/retry](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2F%7BhistoryId%7D%2Fretry) | API | `client.Webhooks.RetryDispatch(ctx, accountID, historyID)` | No body or query. | `data: models.WebhookDispatch` | Errors: 400, 401, 404, 500. Performs a new delivery attempt. |
+
+## Routes without a published contract
+
+The reference mentions `POST /v1/signers/certificate/start` and
+`POST /v1/signers/certificate/complete` in the description of the signing
+operation, as the route a signer whose verification method is
+`DigitalCertificate` must take instead of `POST /v1/documents/{documentId}/assignments/{assignmentId}`.
+Neither route is declared as an operation, so no request body, response payload,
+authentication mode, or error set is published for it. Both are reachable in
+production and return `401` without a signer access code; neither exists in the
+sandbox. The SDK exposes no method for them rather than guessing a contract.
+
+`GET /v1/accounts/{accountId}/templates/{templateId}` is the reverse case: it is
+reachable and returns the single-template payload, including `roles`, `pages`,
+and `default_document_tags`, but the reference lists only the template
+collection. `client.Templates.Get` calls it and decodes `models.Template`.
 
 ## Assignment verification and notification
 

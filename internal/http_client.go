@@ -302,7 +302,8 @@ func (c *HTTPClient) download(ctx context.Context, path string, query map[string
 }
 
 func newNetworkError(err error) *sdkerrors.NetworkError {
-	if urlErr, ok := err.(*url.Error); ok {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
 		clean := *urlErr
 		clean.URL = redactSignerAccessCode(clean.URL)
 		err = &clean

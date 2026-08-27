@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/assinafy/golang-sdk"
+	assinafy "github.com/assinafy/golang-sdk"
 	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/models"
 )

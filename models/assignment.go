@@ -158,26 +158,29 @@ type AssignmentField struct {
 	DisplaySettings any `json:"display_settings,omitempty"`
 }
 
-// CostEstimate is shared by assignment estimate-cost endpoints.
+// CostEstimate is shared by the assignment, template-document, and resend
+// estimate-cost endpoints. The documented fields are always encoded so a zero
+// value such as has_sufficient_resources:false survives a JSON round trip; Total
+// and HasSufficientCredits are legacy resend-only fields and stay omitted when unset.
 type CostEstimate struct {
 	// Documents is the number of document units consumed by assignment creation.
-	Documents float64 `json:"documents,omitempty"`
+	Documents float64 `json:"documents"`
 	// Credits is the number of notification or verification credits consumed.
-	Credits float64 `json:"credits,omitempty"`
+	Credits float64 `json:"credits"`
 	// NeedsExtraDocument reports whether an additional document unit is required.
-	NeedsExtraDocument bool `json:"needs_extra_document,omitempty"`
+	NeedsExtraDocument bool `json:"needs_extra_document"`
 	// ExtraDocumentCost is the additional cost for the required document unit.
-	ExtraDocumentCost float64 `json:"extra_document_cost,omitempty"`
+	ExtraDocumentCost float64 `json:"extra_document_cost"`
 	// TotalCredits is the total credit cost across the estimate breakdown.
-	TotalCredits float64 `json:"total_credits,omitempty"`
+	TotalCredits float64 `json:"total_credits"`
 	// Breakdown itemizes the operation's priced components.
-	Breakdown []CostBreakdownItem `json:"breakdown,omitempty"`
+	Breakdown []CostBreakdownItem `json:"breakdown"`
 	// DocumentBalance is the account's available document-unit balance.
-	DocumentBalance float64 `json:"document_balance,omitempty"`
+	DocumentBalance float64 `json:"document_balance"`
 	// CreditBalance is the account's available credit balance.
-	CreditBalance float64 `json:"credit_balance,omitempty"`
+	CreditBalance float64 `json:"credit_balance"`
 	// HasSufficientResources reports whether both balances cover the operation.
-	HasSufficientResources bool `json:"has_sufficient_resources,omitempty"`
+	HasSufficientResources bool `json:"has_sufficient_resources"`
 	// BlockingReason is set when the operation cannot proceed (e.g. PendingPayment,
 	// InsufficientDocuments, InsufficientCredits) and is null otherwise.
 	BlockingReason *string `json:"blocking_reason"`
@@ -198,9 +201,9 @@ type CostBreakdownItem struct {
 	// Cost is the total cost for this line.
 	Cost float64 `json:"cost"`
 	// Quantity is the number of charged units when the endpoint itemizes it.
-	Quantity float64 `json:"quantity,omitempty"`
+	Quantity float64 `json:"quantity"`
 	// UnitCost is the cost per unit when the endpoint itemizes it.
-	UnitCost float64 `json:"unit_cost,omitempty"`
+	UnitCost float64 `json:"unit_cost"`
 }
 
 // ResendNotificationResult is returned by the assignment resend endpoint.

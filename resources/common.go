@@ -47,6 +47,15 @@ func applyListParams(req *internal.Request, params *models.ListParams) {
 	req.WithQuery("sort", p.Sort)
 }
 
+// applyStatsParams adds the granularity and month queries shared by the account
+// and user statistics endpoints. A nil params sends neither.
+func applyStatsParams(req *internal.Request, params *models.StatsParams) {
+	if params == nil {
+		return
+	}
+	req.WithQuery("granularity", string(params.Granularity)).WithQuery("month", params.Month)
+}
+
 func paginated[T any](data []T, resp *internal.Response) *models.PaginatedResult[T] {
 	return &models.PaginatedResult[T]{Data: data, Pagination: extractPagination(resp.Headers)}
 }

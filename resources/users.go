@@ -82,10 +82,3 @@ func (r *UserResource) UpdateNotificationPreferences(ctx context.Context, change
 	}
 	return out, nil
 }
-
-func applyStatsParams(req *internal.Request, params *models.StatsParams) {
-	if params == nil {
-		return
-	}
-	req.WithQuery("granularity", string(params.Granularity)).WithQuery("month", params.Month)
-}

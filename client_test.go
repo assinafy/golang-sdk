@@ -36,7 +36,8 @@ func TestNewClient(t *testing.T) {
 			}
 			if c.Documents == nil || c.Signers == nil || c.Assignments == nil ||
 				c.Webhooks == nil || c.Templates == nil || c.Fields == nil ||
-				c.Authentication == nil || c.PublicDocuments == nil || c.SignerDocuments == nil {
+				c.Authentication == nil || c.PublicDocuments == nil || c.SignerDocuments == nil ||
+				c.Accounts == nil || c.Users == nil || c.Tags == nil {
 				t.Errorf("missing resource: %+v", c)
 			}
 		})
