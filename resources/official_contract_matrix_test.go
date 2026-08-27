@@ -28,6 +28,7 @@ func TestOfficialOperationWireMatrix(t *testing.T) {
 
 	ctx := context.Background()
 	token := "reset-token"
+	step := 2
 	tests := []wireCase{
 		{
 			name: "authentication login", method: http.MethodPost, path: "/login",
@@ -119,10 +120,15 @@ func TestOfficialOperationWireMatrix(t *testing.T) {
 		{
 			name: "document estimate template cost", method: http.MethodPost,
 			path: "/accounts/acc%2F1/templates/template%2F1/documents/estimate-cost", authenticated: true,
-			body:     map[string]any{"signers": []models.TemplateSigner{{RoleID: "role-1", VerificationMethod: "Email", NotificationMethods: []string{"Email"}}}},
+			body: map[string]any{"signers": []map[string]any{{
+				"role_id": "role-1", "verification_method": "Email", "notification_methods": []string{"Email"},
+			}}},
 			response: `{"status":200,"data":{"documents":1,"credits":2}}`,
 			call: func(httpClient *internal.HTTPClient) error {
-				got, err := NewDocumentResource(httpClient, "acc/1").EstimateCostFromTemplate(ctx, "", "template/1", []models.TemplateSigner{{RoleID: "role-1", VerificationMethod: "Email", NotificationMethods: []string{"Email"}}})
+				got, err := NewDocumentResource(httpClient, "acc/1").EstimateCostFromTemplate(ctx, "", "template/1", []models.TemplateSigner{{
+					RoleID: "role-1", ID: "not-valid-for-estimates", VerificationMethod: "Email",
+					NotificationMethods: []string{"Email"}, Step: &step,
+				}})
 				if err == nil && (got.Documents != 1 || got.Credits != 2) {
 					return fmt.Errorf("decoded template estimate = %+v", got)
 				}

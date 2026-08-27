@@ -2,7 +2,7 @@ package models
 
 // WorkspaceListItem is the slim account record returned in the login response.
 type WorkspaceListItem struct {
-	// ID is the account UUID.
+	// ID is the account identifier.
 	ID string `json:"id"`
 	// Name is the account display name.
 	Name string `json:"name"`

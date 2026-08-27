@@ -29,7 +29,7 @@ type DisplaySettings struct {
 type FieldDefinition struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the field-definition UUID.
+	// ID is the field-definition identifier.
 	ID string `json:"id"`
 	// Name is the human-readable field name.
 	Name string `json:"name"`
@@ -146,7 +146,7 @@ type ValidateFieldRequest struct {
 // ValidateMultipleFieldsRequest is one entry of the body for
 // POST /accounts/{id}/fields/validate-multiple. Value accepts any JSON value.
 type ValidateMultipleFieldsRequest struct {
-	// FieldID is the required field-definition UUID.
+	// FieldID is the required field-definition identifier.
 	FieldID string `json:"field_id"`
 	// Value is the required JSON value to validate against FieldID.
 	Value any `json:"value"`

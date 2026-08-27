@@ -34,7 +34,7 @@ type UpdateWebhookSubscriptionRequest struct {
 type WebhookDispatch struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the dispatch UUID used by the retry endpoint.
+	// ID is the dispatch identifier used by the retry endpoint.
 	ID string `json:"id"`
 	// Event is the machine-readable webhook event code.
 	Event string `json:"event"`
@@ -107,12 +107,13 @@ type WebhookPayload struct {
 	Payload Payload `json:"payload,omitempty"`
 	// Origin is nullable network context for the source request.
 	Origin *RequestOrigin `json:"origin,omitempty"`
-	// CreatedAt is the event creation date-time.
+	// CreatedAt is the event creation time as Unix seconds. Timestamp preserves
+	// the numeric value in base-10 string form.
 	CreatedAt Timestamp `json:"created_at"`
 	// Subject is the optional event actor or subject object.
 	Subject map[string]any `json:"subject,omitempty"`
 	// Object is the optional event target object.
 	Object map[string]any `json:"object,omitempty"`
-	// AccountID is the UUID of the account that emitted the event.
+	// AccountID identifies the account that emitted the event.
 	AccountID string `json:"account_id"`
 }

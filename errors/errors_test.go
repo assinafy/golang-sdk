@@ -75,6 +75,7 @@ func TestIsRetryable(t *testing.T) {
 		{"network", &NetworkError{Err: errors.New("eof")}, true},
 		{"canceled", &NetworkError{Err: context.Canceled}, false},
 		{"deadline", &NetworkError{Err: context.DeadlineExceeded}, false},
+		{"unsafe redirect", &NetworkError{Err: ErrUnsafeRedirect}, false},
 		{"typed nil API", error(nilAPI), false},
 		{"typed nil network", error(nilNetwork), false},
 		{"other", errors.New("other"), false},

@@ -193,7 +193,7 @@ func TestSignerContractMethods(t *testing.T) {
 	})
 
 	t.Run("upload png with reuse", func(t *testing.T) {
-		image := []byte{1, 2, 3}
+		image := []byte("\x89PNG\r\n\x1a\n")
 		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost || r.URL.EscapedPath() != "/signature" {
 				t.Errorf("request = %s %s", r.Method, r.URL.EscapedPath())

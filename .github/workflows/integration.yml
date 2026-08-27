@@ -28,11 +28,8 @@ jobs:
     timeout-minutes: 20
     environment: sandbox
     env:
-      ASSINAFY_API_KEY: ${{ secrets.ASSINAFY_SANDBOX_API_KEY }}
-      ASSINAFY_ACCOUNT_ID: ${{ secrets.ASSINAFY_SANDBOX_ACCOUNT_ID }}
       ASSINAFY_BASE_URL: https://sandbox.assinafy.com.br/v1
       ASSINAFY_RUN_INTEGRATION_TESTS: "1"
-      ASSINAFY_ALLOW_MISSING_DOCUMENTED_ROUTES: "1"
       ASSINAFY_RUN_ASSIGNMENT_TESTS: ${{ inputs.run_assignment_tests && '1' || '0' }}
       ASSINAFY_RUN_ACCOUNT_ADMIN_TESTS: ${{ inputs.run_account_admin_tests && '1' || '0' }}
       GOFLAGS: -mod=readonly
@@ -48,13 +45,20 @@ jobs:
           go-version: "1.27.x"
           cache-dependency-path: go.mod
 
-      - name: Validate sandbox secrets
+      - name: Validate secrets and run sandbox integration tests
         shell: bash
+        env:
+          ASSINAFY_API_KEY: ${{ secrets.ASSINAFY_API_KEY }}
+          ASSINAFY_ACCOUNT_ID: ${{ secrets.ASSINAFY_ACCOUNT_ID }}
+          ASSINAFY_TEST_EMAIL_PRIMARY: ${{ secrets.ASSINAFY_TEST_EMAIL_PRIMARY }}
+          ASSINAFY_TEST_EMAIL_SECONDARY: ${{ secrets.ASSINAFY_TEST_EMAIL_SECONDARY }}
         run: |
           if [[ -z "$ASSINAFY_API_KEY" || -z "$ASSINAFY_ACCOUNT_ID" ]]; then
-            echo "::error::Configure ASSINAFY_SANDBOX_API_KEY and ASSINAFY_SANDBOX_ACCOUNT_ID in the sandbox environment."
+            echo "::error::Configure ASSINAFY_API_KEY and ASSINAFY_ACCOUNT_ID in the sandbox environment."
             exit 1
           fi
-
-      - name: Run sandbox integration tests
-        run: go test -race -count=1 -v -run '^TestIntegration' .
+          if [[ "$ASSINAFY_RUN_ASSIGNMENT_TESTS" == "1" && ( -z "$ASSINAFY_TEST_EMAIL_PRIMARY" || -z "$ASSINAFY_TEST_EMAIL_SECONDARY" ) ]]; then
+            echo "::error::Configure both assignment-test email secrets in the sandbox environment."
+            exit 1
+          fi
+          go test -race -count=1 -v -run '^TestIntegration' .

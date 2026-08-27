@@ -28,6 +28,13 @@ func resolveAccountID(id, fallback string) string {
 	return fallback
 }
 
+func nonNil[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
+}
+
 func applyListParams(req *internal.Request, params *models.ListParams) {
 	p := models.ListParams{}
 	if params != nil {

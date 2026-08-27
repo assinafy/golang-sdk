@@ -2,10 +2,12 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
 )
@@ -196,6 +198,9 @@ func (r *SignerResource) confirmData(ctx context.Context, documentID, signerAcce
 // image for this signing process, and returns an envelope-only success.
 // POST /signature.
 func (r *SignerResource) UploadSignature(ctx context.Context, signerAccessCode, signatureType string, image []byte) error {
+	if err := validateSignatureImage(image); err != nil {
+		return err
+	}
 	return r.uploadSignature(ctx, signerAccessCode, signatureType, nil, "image/png", image)
 }
 
@@ -214,7 +219,17 @@ func (r *SignerResource) UploadSignatureWithContentType(ctx context.Context, sig
 // signerAccessCode and returns an envelope-only success.
 // POST /signature?type={type}&reuse={value}.
 func (r *SignerResource) UploadSignatureWithReuse(ctx context.Context, signerAccessCode, signatureType string, reuse bool, image []byte) error {
+	if err := validateSignatureImage(image); err != nil {
+		return err
+	}
 	return r.uploadSignature(ctx, signerAccessCode, signatureType, &reuse, "image/png", image)
+}
+
+func validateSignatureImage(image []byte) error {
+	if http.DetectContentType(image) != "image/png" {
+		return fmt.Errorf("%w: signature image is not a PNG", sdkerrors.ErrInvalidInput)
+	}
+	return nil
 }
 
 func (r *SignerResource) uploadSignature(ctx context.Context, signerAccessCode, signatureType string, reuse *bool, contentType string, image []byte) error {

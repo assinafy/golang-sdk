@@ -18,10 +18,14 @@ func TestCreateAccountRequestMarshal(t *testing.T) {
 
 func TestDocumentStatsRowUnmarshal(t *testing.T) {
 	var row DocumentStatsRow
-	if err := json.Unmarshal([]byte(`{"period":"2026-06","documents_uploaded":2,"documents_sent":1,"signature_requests":3,"signature_requests_email":2,"signature_requests_whatsapp":1,"signature_requests_viewed":2,"signature_requests_completed":1,"documents_certified":1}`), &row); err != nil {
+	if err := json.Unmarshal([]byte(`{"period":"2026-06","documents_uploaded":2,"documents_sent":1,"signature_requests":3,"signature_requests_notification_email":2,"signature_requests_notification_whatsapp":1,"signature_requests_notification_bypass":1,"signature_requests_verification_email":1,"signature_requests_verification_whatsapp":1,"signature_requests_verification_bypass":0,"signature_requests_verification_digital_certificate":1,"signature_requests_viewed":2,"signature_requests_completed":1,"documents_certified":1}`), &row); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if row.Period != "2026-06" || row.DocumentsUploaded != 2 || row.SignatureRequestsWhatsApp != 1 || row.DocumentsCertified != 1 {
+	if row.Period != "2026-06" || row.DocumentsUploaded != 2 ||
+		row.SignatureRequestsNotificationEmail != 2 || row.SignatureRequestsNotificationWhatsApp != 1 ||
+		row.SignatureRequestsNotificationBypass != 1 || row.SignatureRequestsVerificationEmail != 1 ||
+		row.SignatureRequestsVerificationWhatsApp != 1 || row.SignatureRequestsVerificationBypass != 0 ||
+		row.SignatureRequestsVerificationDigitalCertificate != 1 || row.DocumentsCertified != 1 {
 		t.Errorf("row = %+v", row)
 	}
 }

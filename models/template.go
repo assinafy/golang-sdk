@@ -22,7 +22,7 @@ const (
 type Template struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the template UUID.
+	// ID is the template identifier.
 	ID string `json:"id"`
 	// Name is the template display name.
 	Name string `json:"name"`
@@ -50,7 +50,7 @@ type Template struct {
 
 // TemplateRole describes a signing role declared on a template.
 type TemplateRole struct {
-	// ID is the role UUID referenced by TemplateSigner.RoleID.
+	// ID is the role identifier referenced by TemplateSigner.RoleID.
 	ID string `json:"id"`
 	// Name is the role's display name.
 	Name string `json:"name"`
@@ -66,7 +66,7 @@ type TemplateRole struct {
 
 // TemplatePage is a single page inside a Template.
 type TemplatePage struct {
-	// ID is the page UUID referenced by template field placements.
+	// ID is the page identifier referenced by template field placements.
 	ID string `json:"id"`
 	// Number is the one-based page number.
 	Number int `json:"number"`
@@ -82,11 +82,11 @@ type TemplatePage struct {
 
 // TemplateFieldPlacement is a single field placement on a TemplatePage.
 type TemplateFieldPlacement struct {
-	// ID is the placement UUID.
+	// ID is the placement identifier.
 	ID string `json:"id"`
-	// FieldID is the field-definition UUID.
+	// FieldID is the field-definition identifier.
 	FieldID string `json:"field_id"`
-	// RoleID is the signer-role UUID responsible for this field.
+	// RoleID is the signer-role identifier responsible for this field.
 	RoleID string `json:"role_id"`
 	// Label is the field label shown in the template editor.
 	Label string `json:"label"`

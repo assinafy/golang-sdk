@@ -102,7 +102,7 @@ func (r *SignerDocumentResource) newSearchRequest(signerID, signerAccessCode str
 // error, discarding the documented empty data array.
 // PUT /signers/documents/sign-multiple.
 func (r *SignerDocumentResource) SignMultiple(ctx context.Context, signerAccessCode string, documentIDs []string) error {
-	body := map[string][]string{"document_ids": documentIDs}
+	body := map[string][]string{"document_ids": nonNil(documentIDs)}
 	_, err := r.http.NewRequest(http.MethodPut, "/signers/documents/sign-multiple").
 		WithoutAuth().
 		WithQuery("signer-access-code", signerAccessCode).
@@ -117,7 +117,7 @@ func (r *SignerDocumentResource) SignMultiple(ctx context.Context, signerAccessC
 // PUT /signers/documents/decline-multiple.
 func (r *SignerDocumentResource) DeclineMultiple(ctx context.Context, signerAccessCode string, documentIDs []string, reason string) error {
 	body := map[string]any{
-		"document_ids":   documentIDs,
+		"document_ids":   nonNil(documentIDs),
 		"decline_reason": reason,
 	}
 	_, err := r.http.NewRequest(http.MethodPut, "/signers/documents/decline-multiple").

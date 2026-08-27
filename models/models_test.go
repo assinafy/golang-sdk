@@ -86,13 +86,21 @@ func TestTimestampUnmarshal(t *testing.T) {
 }
 
 func TestTimestampMarshal(t *testing.T) {
-	ts := Timestamp("2024-01-15T12:00:00Z")
-	out, err := json.Marshal(ts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(out) != `"2024-01-15T12:00:00Z"` {
-		t.Errorf("got %s, want quoted string", out)
+	for _, tc := range []struct {
+		value Timestamp
+		want  string
+	}{
+		{Timestamp("2024-01-15T12:00:00Z"), `"2024-01-15T12:00:00Z"`},
+		{Timestamp("1705316400"), `1705316400`},
+		{Timestamp("001"), `"001"`},
+	} {
+		out, err := json.Marshal(tc.value)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(out) != tc.want {
+			t.Errorf("got %s, want %s", out, tc.want)
+		}
 	}
 }
 

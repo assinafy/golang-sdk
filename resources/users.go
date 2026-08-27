@@ -28,9 +28,8 @@ func (r *UserResource) GetSelf(ctx context.Context) (*models.User, error) {
 	if _, err := r.http.NewRequest(http.MethodGet, "/users/self").Execute(ctx, &raw); err != nil {
 		return nil, err
 	}
-	// The current OpenAPI describes data as User. The sandbox still returns the
-	// older authentication-session shape; this method extracts its user and
-	// intentionally ignores the accompanying accounts.
+	// Accept both a direct User and the authentication-session {user, accounts}
+	// shape. Only the requested User profile is returned.
 	var legacy struct {
 		User *models.User `json:"user"`
 	}

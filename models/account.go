@@ -20,7 +20,7 @@ const (
 type Account struct {
 	// Resource is the API resource discriminator when that endpoint includes it.
 	Resource string `json:"resource,omitempty"`
-	// ID is the account UUID used in account-scoped endpoint paths.
+	// ID is the account identifier used in account-scoped endpoint paths.
 	ID string `json:"id"`
 	// Name is the account's display name.
 	Name string `json:"name"`

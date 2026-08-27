@@ -40,11 +40,11 @@ const (
 type Document struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the document UUID.
+	// ID is the document identifier.
 	ID string `json:"id"`
-	// AccountID is the owning account UUID.
+	// AccountID is the owning account identifier.
 	AccountID string `json:"account_id"`
-	// TemplateID is the nullable source-template UUID.
+	// TemplateID is the nullable source-template identifier.
 	TemplateID *string `json:"template_id,omitempty"`
 	// Name is the document display name.
 	Name string `json:"name"`
@@ -98,7 +98,7 @@ type DocumentArtifacts struct {
 
 // DocumentPage describes a single page rendered from the source PDF.
 type DocumentPage struct {
-	// ID is the page UUID used by field-placement and page-download endpoints.
+	// ID is the page identifier used by field-placement and page-download endpoints.
 	ID string `json:"id"`
 	// Number is the one-based page number.
 	Number int `json:"number"`
@@ -162,7 +162,7 @@ type CreateDocumentFromTemplateOptions struct {
 
 // TemplateEditorField is a single value bound to a template editor field.
 type TemplateEditorField struct {
-	// FieldID is the required template field UUID.
+	// FieldID is the required template field identifier.
 	FieldID string `json:"field_id"`
 	// Value is the required editor value. The OpenAPI declares a string; any is
 	// retained for compatibility with values accepted by earlier API versions.
@@ -171,9 +171,9 @@ type TemplateEditorField struct {
 
 // TemplateSigner pairs a real signer with a template role.
 type TemplateSigner struct {
-	// RoleID is the required template role UUID.
+	// RoleID is the required template role identifier.
 	RoleID string `json:"role_id"`
-	// ID is the existing signer UUID required for document creation; omit it for
+	// ID is the existing signer identifier required for document creation; omit it for
 	// the estimate-cost endpoint, whose signer shape does not include an ID.
 	ID string `json:"id,omitempty"`
 	// VerificationMethod is the optional API verification-method code.
@@ -212,7 +212,7 @@ type UploadAndRequestSignaturesResult struct {
 type VerifyDocumentResult struct {
 	// Hash is the signature hash that was verified.
 	Hash string `json:"hash"`
-	// ID is the nullable matched document UUID.
+	// ID is the nullable matched document identifier.
 	ID *string `json:"id,omitempty"`
 	// Status is the nullable matched document lifecycle code.
 	Status *string `json:"status,omitempty"`
@@ -245,7 +245,7 @@ type DocumentStatusInfo struct {
 type PublicDocumentInfo struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
-	// ID is the public document UUID.
+	// ID is the public document identifier.
 	ID string `json:"id"`
 	// Name is the public document display name.
 	Name string `json:"name"`

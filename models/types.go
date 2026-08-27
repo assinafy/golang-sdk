@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strconv"
 )
 
 // Timestamp represents a value that the Assinafy API may serialize either as
 // an ISO-8601 string or as a Unix timestamp number. It is decoded into the
-// canonical string form and re-encoded as a JSON string.
+// canonical string form. Numeric values are re-encoded as JSON numbers; other
+// values are encoded as strings.
 type Timestamp string
 
 // String returns the underlying value.
@@ -40,8 +42,13 @@ func (t *Timestamp) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON always emits the timestamp as a JSON string.
+// MarshalJSON preserves canonical integer timestamps as JSON numbers and emits
+// date-time values as JSON strings.
 func (t Timestamp) MarshalJSON() ([]byte, error) {
+	value := string(t)
+	if number, err := strconv.ParseInt(value, 10, 64); err == nil && strconv.FormatInt(number, 10) == value {
+		return []byte(value), nil
+	}
 	return json.Marshal(string(t))
 }
 

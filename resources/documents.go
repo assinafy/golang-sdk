@@ -1,14 +1,19 @@
 package resources
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
 )
+
+const maxDocumentSize = 25 * 1024 * 1024
 
 // DocumentResource exposes authenticated document lifecycle, artifact, and tag
 // endpoints. Its methods follow the package-level account and error contract;
@@ -30,6 +35,9 @@ func NewDocumentResource(httpClient *internal.HTTPClient, accountID string) *Doc
 // accountID uses the default. Processing continues asynchronously after response.
 // POST /accounts/{account_id}/documents.
 func (r *DocumentResource) Upload(ctx context.Context, accountID string, fileContent []byte, fileName string, metadata map[string]string) (*models.Document, error) {
+	if err := validateDocumentUpload(fileContent, fileName); err != nil {
+		return nil, err
+	}
 	accountID = resolveAccountID(accountID, r.accountID)
 
 	form := map[string]string{"name": fileName}
@@ -43,6 +51,26 @@ func (r *DocumentResource) Upload(ctx context.Context, accountID string, fileCon
 		return nil, err
 	}
 	return &doc, nil
+}
+
+func validateDocumentUpload(fileContent []byte, fileName string) error {
+	if strings.TrimSpace(fileName) == "" {
+		return fmt.Errorf("%w: document file name is empty", sdkerrors.ErrInvalidInput)
+	}
+	if len(fileContent) == 0 {
+		return fmt.Errorf("%w: document file is empty", sdkerrors.ErrInvalidInput)
+	}
+	if len(fileContent) > maxDocumentSize {
+		return fmt.Errorf("%w: document exceeds the 25 MB API limit", sdkerrors.ErrInvalidInput)
+	}
+	header := fileContent
+	if len(header) > 1024 {
+		header = header[:1024]
+	}
+	if !bytes.Contains(header, []byte("%PDF-")) {
+		return fmt.Errorf("%w: document is not a PDF", sdkerrors.ErrInvalidInput)
+	}
+	return nil
 }
 
 // List returns a page of Document payloads and X-Pagination metadata using the
@@ -188,10 +216,10 @@ func (r *DocumentResource) Verify(ctx context.Context, signatureHash string) (*m
 func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner, opts *models.CreateDocumentFromTemplateOptions) (*models.Document, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
 
-	body := models.CreateDocumentFromTemplateOptions{Signers: signers}
+	body := models.CreateDocumentFromTemplateOptions{Signers: nonNil(signers)}
 	if opts != nil {
 		body = *opts
-		body.Signers = signers
+		body.Signers = nonNil(signers)
 	}
 
 	var out models.Document
@@ -210,8 +238,22 @@ func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, te
 func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) (*models.CostEstimate, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
 
+	type estimateSigner struct {
+		RoleID              string   `json:"role_id"`
+		VerificationMethod  string   `json:"verification_method,omitempty"`
+		NotificationMethods []string `json:"notification_methods,omitempty"`
+	}
+	estimateSigners := make([]estimateSigner, len(signers))
+	for i, signer := range signers {
+		estimateSigners[i] = estimateSigner{
+			RoleID:              signer.RoleID,
+			VerificationMethod:  signer.VerificationMethod,
+			NotificationMethods: signer.NotificationMethods,
+		}
+	}
+
 	var out models.CostEstimate
-	body := map[string]any{"signers": signers}
+	body := map[string]any{"signers": estimateSigners}
 	path := "/accounts/" + url.PathEscape(accountID) + "/templates/" + url.PathEscape(templateID) + "/documents/estimate-cost"
 	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
 	if err != nil {

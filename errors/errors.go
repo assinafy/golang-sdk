@@ -8,6 +8,24 @@ import (
 	"net/http"
 )
 
+// ErrInvalidInput identifies a request rejected locally before any network
+// call because a required path, file, or other input is invalid.
+var ErrInvalidInput = stderrors.New("assinafy: invalid input")
+
+// ErrUnsafeRedirect identifies an unsafe request redirected across origins and
+// rejected before the destination received it.
+var ErrUnsafeRedirect = stderrors.New("assinafy: refused unsafe cross-origin redirect")
+
+// DeletionRestriction describes one account-deletion blocker returned by the API.
+type DeletionRestriction struct {
+	// Code is ActivePaidSubscription or PendingDocuments.
+	Code string `json:"code"`
+	// Message explains how the restriction blocks deletion.
+	Message string `json:"message"`
+	// AccountIDs lists the affected account IDs.
+	AccountIDs []string `json:"account_ids"`
+}
+
 // APIError represents a non-success HTTP response or API-envelope status.
 type APIError struct {
 	// StatusCode is the HTTP or API-envelope status code.
@@ -16,6 +34,8 @@ type APIError struct {
 	Message string `json:"message"`
 	// Data contains optional structured error details from the response envelope.
 	Data any `json:"data,omitempty"`
+	// Restrictions contains account-deletion blockers when the API returns them.
+	Restrictions []DeletionRestriction `json:"restrictions,omitempty"`
 	// Headers contains the HTTP response headers, including Retry-After and
 	// provider request IDs when supplied.
 	Headers http.Header `json:"-"`
@@ -59,7 +79,7 @@ func IsStatusCode(err error, code int) bool {
 
 // IsRetryable reports whether err represents a transient failure (HTTP 429 or 5xx).
 func IsRetryable(err error) bool {
-	if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+	if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) || stderrors.Is(err, ErrUnsafeRedirect) {
 		return false
 	}
 	var apiErr *APIError

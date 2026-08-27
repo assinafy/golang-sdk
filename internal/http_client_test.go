@@ -44,9 +44,80 @@ func TestHTTPClientParsesWrappedResponse(t *testing.T) {
 	}
 }
 
+func TestHTTPClientPreservesDeletionRestrictions(t *testing.T) {
+	client := NewHTTPClient("https://example.test", "key", "", time.Second)
+	client.httpc.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(
+				`{"status":400,"message":"blocked","restrictions":[{"code":"ActivePaidSubscription","message":"active subscription","account_ids":["account-1"]}]}`,
+			)),
+			Request: req,
+		}, nil
+	})
+
+	_, err := client.NewRequest(http.MethodDelete, "/accounts/account-1").Execute(context.Background(), nil)
+	var apiErr *sdkerrors.APIError
+	if !errors.As(err, &apiErr) || len(apiErr.Restrictions) != 1 ||
+		apiErr.Restrictions[0].Code != "ActivePaidSubscription" ||
+		len(apiErr.Restrictions[0].AccountIDs) != 1 || apiErr.Restrictions[0].AccountIDs[0] != "account-1" {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
 func TestHTTPClientBaseURL(t *testing.T) {
 	if got := NewHTTPClient("https://example.com/v1/", "", "", time.Second).BaseURL(); got != "https://example.com/v1" {
 		t.Fatalf("BaseURL() = %q", got)
+	}
+}
+
+func TestHTTPClientRejectsInvalidPathsBeforeSending(t *testing.T) {
+	client := NewHTTPClient("https://example.test", "key", "", time.Second)
+	sent := 0
+	client.httpc.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		sent++
+		return nil, errors.New("unexpected request")
+	})
+
+	for _, path := range []string{
+		"documents/id",
+		"/documents/",
+		"/accounts//documents",
+		"/documents/%20",
+		"/documents/.",
+		"/documents/..",
+		"/accounts/..%2Fother/documents",
+		"/accounts/..%5Cother/documents",
+	} {
+		if _, err := client.NewRequest(http.MethodGet, path).Execute(context.Background(), nil); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+			t.Errorf("path %q error = %v", path, err)
+		}
+		if _, err := client.Download(context.Background(), path, nil); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+			t.Errorf("download path %q error = %v", path, err)
+		}
+	}
+	if sent != 0 {
+		t.Fatalf("sent %d invalid requests", sent)
+	}
+}
+
+func TestHTTPClientRejectsInvalidMultipartInputs(t *testing.T) {
+	client := NewHTTPClient("https://example.test", "key", "", time.Second)
+	for _, tc := range []struct {
+		name, path, field, fileName string
+		content                     []byte
+	}{
+		{name: "path", path: "/accounts//documents", field: "file", fileName: "a.pdf", content: []byte("x")},
+		{name: "field", path: "/accounts/a/documents", field: " ", fileName: "a.pdf", content: []byte("x")},
+		{name: "file name", path: "/accounts/a/documents", field: "file", fileName: " ", content: []byte("x")},
+		{name: "content", path: "/accounts/a/documents", field: "file", fileName: "a.pdf"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := client.UploadMultipart(context.Background(), tc.path, tc.field, tc.fileName, tc.content, nil, nil); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
@@ -370,12 +441,15 @@ func TestHTTPClientStripsCredentialsOnCrossOriginRedirect(t *testing.T) {
 		if got := r.Header.Get("Referer"); got != "" {
 			t.Errorf("redirect leaked signer code in Referer %q", got)
 		}
+		if got := r.URL.Query().Get("signer-access-code"); got != "" {
+			t.Errorf("redirect leaked signer access code in query")
+		}
 		_, _ = w.Write([]byte(`{"id":"ok"}`))
 	}))
 	defer destination.Close()
 
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, destination.URL, http.StatusFound)
+		http.Redirect(w, r, destination.URL+"?"+r.URL.RawQuery, http.StatusFound)
 	}))
 	defer source.Close()
 
@@ -390,6 +464,80 @@ func TestHTTPClientStripsCredentialsOnCrossOriginRedirect(t *testing.T) {
 	}
 	if result.ID != "ok" {
 		t.Errorf("redirect result = %+v", result)
+	}
+}
+
+func TestHTTPClientRefusesCrossOriginRedirectWithBody(t *testing.T) {
+	received := 0
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		received++
+	}))
+	defer destination.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL+"?"+r.URL.RawQuery, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	client := NewHTTPClient(source.URL, "key", "", time.Second)
+	_, err := client.NewRequest(http.MethodPost, "/redirect").
+		WithQuery("signer-access-code", "secret").
+		WithBody(map[string]string{"password": "fixture"}).
+		Execute(context.Background(), nil)
+	var networkErr *sdkerrors.NetworkError
+	if !errors.As(err, &networkErr) || !errors.Is(err, sdkerrors.ErrUnsafeRedirect) || sdkerrors.IsRetryable(err) {
+		t.Fatalf("error = %#v", err)
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error exposed signer access code")
+	}
+	if received != 0 {
+		t.Fatalf("destination received %d requests", received)
+	}
+}
+
+func TestHTTPClientRefusesCrossOriginRedirectForMutation(t *testing.T) {
+	received := 0
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		received++
+	}))
+	defer destination.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := NewHTTPClient(source.URL, "key", "", time.Second)
+	_, err := client.NewRequest(http.MethodPost, "/redirect").Execute(context.Background(), nil)
+	if !errors.Is(err, sdkerrors.ErrUnsafeRedirect) || sdkerrors.IsRetryable(err) {
+		t.Fatalf("error = %#v", err)
+	}
+	if received != 0 {
+		t.Fatalf("destination received %d requests", received)
+	}
+}
+
+func TestHTTPClientRefusesHTTPSDowngrade(t *testing.T) {
+	received := 0
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		received++
+	}))
+	defer destination.Close()
+
+	source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := NewHTTPClient(source.URL, "key", "", time.Second)
+	client.httpc.Transport = source.Client().Transport
+	_, err := client.NewRequest(http.MethodGet, "/redirect").Execute(context.Background(), nil)
+	if !errors.Is(err, sdkerrors.ErrUnsafeRedirect) || sdkerrors.IsRetryable(err) {
+		t.Fatalf("error = %#v", err)
+	}
+	if received != 0 {
+		t.Fatalf("destination received %d requests", received)
 	}
 }
 
@@ -489,6 +637,9 @@ func TestHTTPClientDownload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/artifact" || r.URL.Query().Get("kind") != "original" {
 			t.Errorf("URL = %s", r.URL.String())
+		}
+		if got := r.Header.Get("Accept"); got != "*/*" {
+			t.Errorf("Accept = %q", got)
 		}
 		if _, exists := r.URL.Query()["empty"]; exists {
 			t.Error("empty query value must be omitted")
