@@ -6,6 +6,8 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 // ErrInvalidInput identifies a request rejected locally before any network
@@ -69,6 +71,54 @@ func (e *NetworkError) Unwrap() error {
 		return nil
 	}
 	return e.Err
+}
+
+// InsufficientScope reports the OAuth scope an API call was rejected for, and
+// whether the rejection was in fact a missing-scope one.
+//
+// The API answers a call an OAuth token lacks permission for with 403 and a
+// challenge naming the scope:
+//
+//	WWW-Authenticate: Bearer error="insufficient_scope", scope="documents:write", …
+//
+// Treat it as a prompt to send the user through the authorization flow again
+// with that scope added, not as a request to retry. A 403 without this header
+// has another cause: a different workspace, the user's own role, or an area
+// OAuth tokens can never reach, such as billing or credential management.
+func InsufficientScope(err error) (string, bool) {
+	var apiErr *APIError
+	if !stderrors.As(err, &apiErr) || apiErr == nil || apiErr.Headers == nil {
+		return "", false
+	}
+	for _, challenge := range apiErr.Headers.Values("WWW-Authenticate") {
+		params := authParams(challenge)
+		if params["error"] != "insufficient_scope" {
+			continue
+		}
+		return params["scope"], true
+	}
+	return "", false
+}
+
+// authParams pulls the key="value" pairs out of one WWW-Authenticate challenge.
+// Unquoted values and the leading scheme token are ignored.
+func authParams(challenge string) map[string]string {
+	params := make(map[string]string)
+	for _, part := range strings.Split(challenge, ",") {
+		key, value, found := strings.Cut(strings.TrimSpace(part), "=")
+		if !found {
+			continue
+		}
+		if unquoted, err := strconv.Unquote(strings.TrimSpace(value)); err == nil {
+			// A challenge starts with the scheme, as in `Bearer error="…"`, so the
+			// first key carries it; keep only the parameter name.
+			if _, name, hasScheme := strings.Cut(strings.TrimSpace(key), " "); hasScheme {
+				key = name
+			}
+			params[strings.TrimSpace(key)] = unquoted
+		}
+	}
+	return params
 }
 
 // IsStatusCode reports whether err is an APIError with the given status code.

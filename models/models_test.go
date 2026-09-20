@@ -444,3 +444,97 @@ func TestNotificationPreferencesJSON(t *testing.T) {
 		t.Errorf("preferences = %v", roundTrip)
 	}
 }
+
+func TestCompleteCertificateSignatureRequestMarshal(t *testing.T) {
+	tests := []struct {
+		name string
+		req  CompleteCertificateSignatureRequest
+		want map[string]any
+	}{
+		{"token only", CompleteCertificateSignatureRequest{Token: "t"}, map[string]any{"token": "t"}},
+		{
+			"token and signature",
+			CompleteCertificateSignatureRequest{Token: "t", Signature: "sig"},
+			map[string]any{"token": "t", "signature": "sig"},
+		},
+		{
+			// The route has no published schema, so Extra reaches fields the
+			// documented ones do not cover.
+			"extra fields are merged",
+			CompleteCertificateSignatureRequest{Token: "t", Extra: map[string]any{"certificate": "MIIF"}},
+			map[string]any{"token": "t", "certificate": "MIIF"},
+		},
+		{
+			"extra overrides the known fields",
+			CompleteCertificateSignatureRequest{Token: "t", Signature: "sig", Extra: map[string]any{"token": "other"}},
+			map[string]any{"token": "other", "signature": "sig"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(encoded, &got); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("body = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVerificationAndNotificationMethodValues(t *testing.T) {
+	// Only matching pairs are accepted by the API; the constants are the exact
+	// codes it enumerates.
+	allowed := map[string][]string{
+		VerificationMethodEmail:              {NotificationMethodEmail},
+		VerificationMethodWhatsApp:           {NotificationMethodWhatsApp},
+		VerificationMethodDigitalCertificate: {NotificationMethodEmail, NotificationMethodWhatsApp},
+	}
+	want := map[string][]string{
+		"Email":              {"Email"},
+		"Whatsapp":           {"Whatsapp"},
+		"DigitalCertificate": {"Email", "Whatsapp"},
+	}
+	if !reflect.DeepEqual(allowed, want) {
+		t.Fatalf("method codes = %#v, want %#v", allowed, want)
+	}
+
+	// The constants are untyped, so they assign to the plain string fields the
+	// assignment models use.
+	reference := SignerReference{
+		ID:                  "s1",
+		VerificationMethod:  VerificationMethodDigitalCertificate,
+		NotificationMethods: []string{NotificationMethodWhatsApp},
+	}
+	encoded, err := json.Marshal(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantJSON = `{"id":"s1","verification_method":"DigitalCertificate","notification_methods":["Whatsapp"]}`
+	if string(encoded) != wantJSON {
+		t.Fatalf("encoded = %s, want %s", encoded, wantJSON)
+	}
+}
+
+func TestStartCertificateSignatureResultDecoding(t *testing.T) {
+	var start StartCertificateSignatureResult
+	if err := json.Unmarshal([]byte(`{"token":"webpki-token"}`), &start); err != nil {
+		t.Fatal(err)
+	}
+	if start.Token != "webpki-token" {
+		t.Fatalf("start = %+v", start)
+	}
+
+	var complete CompleteCertificateSignatureResult
+	if err := json.Unmarshal([]byte(`{"signerName":"MARIA SILVA:39053344705"}`), &complete); err != nil {
+		t.Fatal(err)
+	}
+	if complete.SignerName != "MARIA SILVA:39053344705" {
+		t.Fatalf("complete = %+v", complete)
+	}
+}

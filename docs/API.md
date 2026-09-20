@@ -1,14 +1,14 @@
 # Assinafy API v1 mapping
 
-This reference maps the Assinafy Go SDK to all 89 operations in the [API documentation](https://api.assinafy.com.br/v1/docs) and OpenAPI `3.0.0` [description](https://api.assinafy.com.br/v1/docs/openapi.json) for API version `1.0.0`.
+This reference maps the Assinafy Go SDK to all 93 operations in the [API documentation](https://api.assinafy.com.br/v1/docs) and OpenAPI `3.0.0` [description](https://api.assinafy.com.br/v1/docs/openapi.json) for API version `1.0.0`.
 
 ## Conventions
 
 - Paths include `/v1` as shown by the API. SDK resource methods use paths relative to `ClientOptions.BaseURL`, which already includes `/v1`.
 - Every `{name}` in a path is a required string path parameter. Passing an empty account ID to an account-scoped SDK method uses `ClientOptions.AccountID`.
 - `*` marks a required body field. `?` marks an optional body or query field. Unmarked path values are required by the path itself.
-- `API` authentication means either `X-Api-Key` or `Authorization: Bearer <token>`. `Signer` means the `signer-access-code` query parameter. `Public` means no API credential.
-- Unless a row says binary, a successful response is JSON `{status: integer, message: string, data: ...}`. The SDK unwraps `data`. “Envelope only” is `{status, message}` with no documented `data`.
+- `API` authentication means either `X-Api-Key` or `Authorization: Bearer <token>`. `Signer` means the `signer-access-code` query parameter. `Public` means no API credential. An OAuth access token is an `API` credential and must travel as `Authorization: Bearer`; it is refused as `X-Api-Key` or in the query string.
+- Unless a row says binary, a successful response is JSON `{status: integer, message: string, data: ...}`. The SDK unwraps `data`. “Envelope only” is `{status, message}` with no documented `data`. The four OAuth operations are the exception: they answer with flat OAuth JSON and are never wrapped.
 - Paginated SDK results contain `Data` plus values decoded from `X-Pagination-Current-Page`, `X-Pagination-Total-Count`, `X-Pagination-Page-Count`, and `X-Pagination-Per-Page`.
 - Listed errors are the response codes declared for that operation. Non-2xx JSON failures become `*errors.APIError`; transport failures become `*errors.NetworkError`. Unsafe cross-origin mutation redirects wrap `errors.ErrUnsafeRedirect` and are never retried.
 - Request and response field names below are the wire-format JSON names. The [response payload reference](#response-payload-reference) expands every reusable response model.
@@ -55,6 +55,27 @@ This reference maps the Assinafy Go SDK to all 89 operations in the [API documen
 | [GET /v1/users/api-keys](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fusers%2Fapi-keys) | API | `client.Authentication.GetAPIKey(ctx)` | No body or query. | `data: models.APIKeyResult {api_key: string or null}` | Errors: 401, 500. Existing keys may be masked. |
 | [POST /v1/users/api-keys](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Fusers%2Fapi-keys) | API | `client.Authentication.CreateAPIKey(ctx, body)` | `application/json`: `password*: string`. | `data: models.APIKeyResult {api_key: string or null}` | Errors: 401, 500. Returns the newly issued key. |
 | [DELETE /v1/users/api-keys](https://api.assinafy.com.br/v1/docs/markdown?method=delete&path=%2Fv1%2Fusers%2Fapi-keys) | API | `client.Authentication.DeleteAPIKey(ctx)` | No body or query. | `data: []` (SDK returns only `error`) | Errors: 401, 500. Destructive. |
+
+### OAuth — 4 operations
+
+These are the only operations outside the `{status, message, data}` envelope: they
+return flat OAuth JSON so that a standard OAuth client library finds
+`access_token` or `error` at the top level. They live in the `oauth` package
+rather than on `client`, because an integration calls them before it has a client.
+Token and revocation requests are sent `application/x-www-form-urlencoded`, per
+RFC 6749 and the `client_secret_post` authentication method the server advertises.
+
+| Endpoint | Auth | SDK call | Request | Success response | Notes |
+| --- | --- | --- | --- | --- | --- |
+| [GET /.well-known/oauth-protected-resource](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2F.well-known%2Foauth-protected-resource) | Public | `oauth.DiscoverProtectedResource(ctx, apiRoot, httpClient)` | No body or query. | `oauth.ProtectedResourceMetadata` | Errors: 500. Served from the API origin, **not** under `/v1`. RFC 9728; the bare metadata object, never the envelope. `scopes_supported` omits `offline_access` by design. |
+| [POST /v1/oauth/token](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Foauth%2Ftoken) | Public | `config.Exchange(ctx, code, verifier)` or `config.Refresh(ctx, refreshToken)` | `application/x-www-form-urlencoded`: `grant_type*: "authorization_code" or "refresh_token"`; `client_id*: string`; `code?`, `redirect_uri?`, `code_verifier?` (43–128 unreserved characters) for a code exchange; `refresh_token?` for a refresh; `client_secret?` (confidential clients only); `resource?: URI`. | Flat `{access_token, token_type, expires_in, refresh_token?, scope, id_token?}` | Errors: 400 (`invalid_grant`, `invalid_target`, `unsupported_grant_type`), 401 (`invalid_client`), 500. A code is single-use and expires 60 seconds after approval. Every refresh rotates the refresh token and retires the old one. |
+| [POST /v1/oauth/revoke](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Foauth%2Frevoke) | Public | `config.Revoke(ctx, token, hint)` | `application/x-www-form-urlencoded`: `token*: string`; `client_id*: string`; `token_type_hint?: "access_token" or "refresh_token"`; `client_secret?: string`. | Empty 200 | Errors: 401 (`invalid_client`), 500. Every token outcome answers 200 — unknown, malformed and already-revoked included — so the endpoint cannot be used to probe whether a token exists. |
+| [GET /v1/oauth/userinfo](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Foauth%2Fuserinfo) | API | `config.UserInfo(ctx, accessToken)` | No body or query; `Authorization: Bearer <access_token>`. | Flat `{sub, name?, email?, email_verified?}` | Errors: 401, 403, 500. Requires the `openid` scope; `name` additionally requires `profile` and `email` requires `email`. OpenID Connect Core 5.3.2 claims, not the envelope. |
+
+The browser-facing `/oauth/authorize` page and the JWKS document are served by the
+authorization server (`https://auth.assinafy.com.br`), not by this API, and are
+therefore not API operations. `config.AuthorizationURL` builds the first;
+`oauth.DiscoverAuthorizationServer` reads the RFC 8414 metadata that names both.
 
 ### Documents — 18 operations
 
@@ -165,10 +186,20 @@ The reference mentions `POST /v1/signers/certificate/start` and
 `POST /v1/signers/certificate/complete` in the description of the signing
 operation, as the route a signer whose verification method is
 `DigitalCertificate` must take instead of `POST /v1/documents/{documentId}/assignments/{assignmentId}`.
-Neither route is declared as an operation, so no request body, response payload,
-authentication mode, or error set is published for it. Both are reachable in
-production and return `401` without a signer access code; neither exists in the
-sandbox. The SDK exposes no method for them rather than guessing a contract.
+Both are reachable in production and in the sandbox, and return `401` without a
+signer access code, but neither is declared as an operation: no request body,
+response payload, authentication mode, or error set is published, and neither has
+a `/v1/docs/markdown` entry.
+
+The SDK implements them from the shapes Assinafy's own signing flow uses. Treat
+the request and response fields as unverified, and use
+`models.CompleteCertificateSignatureRequest.Extra` to send a field a deployment
+expects that the SDK does not declare.
+
+| Route | Auth | SDK call | Request | Result |
+| --- | --- | --- | --- | --- |
+| `POST /v1/signers/certificate/start` | Signer | `client.Signers.StartCertificateSignature(ctx, signerCode)` | Query security: `signer-access-code*`; no body. | `data: models.StartCertificateSignatureResult {token}` |
+| `POST /v1/signers/certificate/complete` | Signer | `client.Signers.CompleteCertificateSignature(ctx, signerCode, body)` | Query security: `signer-access-code*`; `application/json`: `token*: string`; `signature?: string`; plus anything in `Extra`. | `data: models.CompleteCertificateSignatureResult {signerName}` |
 
 `GET /v1/accounts/{accountId}/templates/{templateId}` is the reverse case: it is
 reachable and returns the single-template payload, including `roles`, `pages`,
@@ -185,6 +216,12 @@ Each assignment signer can specify how identity is verified and how the invitati
 | `Whatsapp` | `Whatsapp` | Signer WhatsApp number and paid subscription | 0 credits for verification; 0.45 credits for notification |
 | `DigitalCertificate` | `Email` or `Whatsapp` | Enabled Digital Certificate feature, signer `government_id`, and the signer alone in its signing step | 2 credits plus notification cost |
 
+`models.VerificationMethodEmail`, `VerificationMethodWhatsApp`, `VerificationMethodDigitalCertificate`, `NotificationMethodEmail`, and `NotificationMethodWhatsApp` are the exact codes; they are untyped constants and assign to the `string` fields on `SignerReference`, `TemplateSigner`, and `EstimateAssignmentCostSigner`.
+
+No verification method carries a price of its own — the charge is for the notification it is paired with. `Whatsapp` verification forces the WhatsApp notification, so it costs that channel's 0.45 credits per signer. `DigitalCertificate` is the exception: the signature itself is charged 2 credits per signer on top of its notification, applied when the assignment is created and itemized in `breakdown` under the `SignatureDigitalCertificate` code.
+
+A `DigitalCertificate` signer signs with their own ICP-Brasil certificate — A1 in software or A3 on a token or smart card — through the Web PKI browser extension, which produces a qualified PAdES signature. `government_id` must hold a CPF or CNPJ: a CPF requires that person's own certificate (an e-CPF, or an e-CNPJ naming them as legal representative), and a CNPJ requires an e-CNPJ for that company. Such a signer cannot use `client.Assignments.Sign`, which rejects them with 400; their signature comes from the two-step exchange in [Routes without a published contract](#routes-without-a-published-contract), and once the document closes its `pades` artifact carries the result.
+
 When any `signers[].step` is supplied, every signer needs a positive step and the steps must be contiguous from 1. Signers in one step act in parallel; the next step is notified only after the preceding step completes. Use `EstimateCostWithRequest` before `Create` to obtain the account-specific document and credit totals.
 
 ## Response payload reference
@@ -200,6 +237,17 @@ The OpenAPI response components generally do not declare `required` arrays, so t
 - **`models.WorkspaceListItem`** (`AuthAccount`): `{id: string, name: string, roles: []string, is_delete_allowed: boolean, created_at: date-time}`.
 - **`models.APIKeyResult`** (`ApiKey`): `{api_key: string or null}`.
 - **`models.EmailResult`**: `{email: email}`.
+
+### OAuth payloads
+
+None of these are wrapped in the envelope.
+
+- **`oauth.Token`**: `{access_token: string, token_type: "Bearer", expires_in: integer, refresh_token: string (only with `offline_access`), scope: string (space-separated, what was actually granted), id_token: string (only with `openid`)}`. The SDK adds `Expiry`, computed from `expires_in` when the token was issued, and persists with the rest.
+- **`oauth.Error`**: `{error: string, error_description: string}` plus the HTTP status. `oauth.ErrorCode(err)` reads the code; `access_denied`, `invalid_client`, `invalid_grant`, `invalid_request`, `invalid_scope`, `invalid_target`, `unsupported_grant_type`, and `unsupported_response_type` have constants.
+- **`oauth.UserInfo`**: `{sub: string, name: string or null, email: email or null, email_verified: boolean or null}`.
+- **`oauth.ProtectedResourceMetadata`**: `{resource: URI, authorization_servers: []URI, scopes_supported: []string, bearer_methods_supported: ["header"]}`.
+- **`oauth.AuthorizationServerMetadata`**: `{issuer, authorization_endpoint, token_endpoint, revocation_endpoint, userinfo_endpoint, jwks_uri, scopes_supported, response_types_supported, grant_types_supported, code_challenge_methods_supported, token_endpoint_auth_methods_supported, authorization_response_iss_parameter_supported}`.
+- A call an OAuth token lacks permission for is `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="…"`. `errors.InsufficientScope(err)` returns that scope; a `403` without the header has another cause.
 
 ### Account and statistics payloads
 
@@ -298,6 +346,13 @@ These methods remain available in the Go package in addition to the operation ca
 | --- | --- |
 | `client.UploadAndRequestSignatures` | Validates and uploads a PDF, creates signers, and creates a virtual assignment. Returns `UploadAndRequestSignaturesResult`, including partial resources after a later failure. |
 | `client.Templates.Get` | Authenticated `GET /accounts/{accountId}/templates/{templateId}` returning `models.Template`. |
+| `client.Signers.StartCertificateSignature` / `CompleteCertificateSignature` | The ICP-Brasil handshake; see [Routes without a published contract](#routes-without-a-published-contract). |
+| `oauth.NewPKCE`, `oauth.NewState`, `oauth.ChallengeFor` | Build the per-attempt PKCE pair and CSRF state from `crypto/rand`. No HTTP request. |
+| `oauth.Config.AuthorizationURL` | Builds the browser approval URL. No HTTP request. |
+| `oauth.Config.ParseCallback` | Validates `state` (constant time) and `iss` on the redirect URI and returns the authorization code, or an `*oauth.Error` when the user declined. |
+| `oauth.NewTokenSource` | Wraps a token so the SDK client renews it from its refresh token. Its `onRefresh` callback persists the rotated token before it is used; returning an error aborts the refresh. |
+| `oauth.DiscoverAuthorizationServer` | Reads the RFC 8414 document from the authorization server, falling back to `/.well-known/openid-configuration`. |
+| `errors.InsufficientScope` | Reads the scope named by a `403` `insufficient_scope` challenge. |
 | `client.Authentication.SocialLoginURL` | Builds an `/auth/authenticate` browser URL for a provider and performs no HTTP request. |
 | `client.PublicDocuments.Get` | Deprecated. Calls the public document endpoint and decodes `models.PublicDocumentInfo`; use `GetDocument` for `models.Document`. |
 | `client.PublicDocuments.SendToken` | Deprecated. Sends `models.SendDocumentTokenRequest` and decodes `models.SendDocumentTokenResult`; use `SendTokenWithRequest` or `SendTokenByEmail` for the envelope-only contract. |

@@ -22,9 +22,10 @@ const userAgent = "assinafy-go-sdk"
 
 // HTTPClient is a thin JSON/multipart client around net/http.
 type HTTPClient struct {
-	baseURL string
-	headers http.Header
-	httpc   *http.Client
+	baseURL     string
+	headers     http.Header
+	tokenSource func(context.Context) (string, error)
+	httpc       *http.Client
 }
 
 // NewHTTPClient builds an HTTPClient with the given credentials and timeout.
@@ -67,9 +68,33 @@ func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPCl
 	}
 }
 
+// NewHTTPClientWithTokenSource builds an HTTPClient that resolves a bearer
+// token for every request instead of carrying a fixed credential. It is used
+// for OAuth connections, whose access tokens expire and are renewed.
+func NewHTTPClientWithTokenSource(baseURL string, tokenSource func(context.Context) (string, error), timeout time.Duration) *HTTPClient {
+	c := NewHTTPClient(baseURL, "", "", timeout)
+	c.tokenSource = tokenSource
+	return c
+}
+
 // BaseURL returns the API base URL the client was constructed with (with any
 // trailing slash trimmed). It is used to build browser-facing URLs.
 func (c *HTTPClient) BaseURL() string { return c.baseURL }
+
+// authorize resolves the per-request bearer token, if the client has a token
+// source, and sets it on req. Requests that opted out of authentication are
+// left alone.
+func (c *HTTPClient) authorize(ctx context.Context, req *http.Request, noAuth bool) error {
+	if c.tokenSource == nil || noAuth {
+		return nil
+	}
+	token, err := c.tokenSource(ctx)
+	if err != nil {
+		return fmt.Errorf("assinafy: resolve access token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
+}
 
 // Request is a fluent builder for outgoing API requests.
 type Request struct {
@@ -174,6 +199,9 @@ func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response,
 		}
 		req.Header[k] = append(req.Header[k], vs...)
 	}
+	if err := c.authorize(ctx, req, r.noAuth); err != nil {
+		return nil, err
+	}
 	if contentType != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -231,6 +259,9 @@ func (c *HTTPClient) UploadMultipart(ctx context.Context, path, fieldName, fileN
 	for k, vs := range c.headers {
 		req.Header[k] = append(req.Header[k], vs...)
 	}
+	if err := c.authorize(ctx, req, false); err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := c.httpc.Do(req)
@@ -279,6 +310,9 @@ func (c *HTTPClient) download(ctx context.Context, path string, query map[string
 			continue
 		}
 		req.Header[k] = append(req.Header[k], vs...)
+	}
+	if err := c.authorize(ctx, req, noAuth); err != nil {
+		return nil, err
 	}
 	req.Header.Set("Accept", "*/*")
 

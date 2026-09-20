@@ -88,3 +88,66 @@ func TestIsRetryable(t *testing.T) {
 		})
 	}
 }
+
+func TestInsufficientScope(t *testing.T) {
+	challenge := func(value string) http.Header {
+		return http.Header{"Www-Authenticate": []string{value}}
+	}
+
+	cases := []struct {
+		name  string
+		err   error
+		scope string
+		ok    bool
+	}{
+		{
+			name: "names the missing scope",
+			err: &APIError{StatusCode: http.StatusForbidden, Headers: challenge(
+				`Bearer error="insufficient_scope", scope="documents:write", ` +
+					`resource_metadata="https://api.assinafy.com.br/.well-known/oauth-protected-resource"`)},
+			scope: "documents:write",
+			ok:    true,
+		},
+		{
+			// A challenge without a scope still identifies the cause.
+			name:  "challenge without a scope",
+			err:   &APIError{StatusCode: http.StatusForbidden, Headers: challenge(`Bearer error="insufficient_scope"`)},
+			scope: "",
+			ok:    true,
+		},
+		{
+			// A 403 for another reason: a different workspace, the user's role,
+			// or an area OAuth tokens can never reach.
+			name: "other forbidden",
+			err:  &APIError{StatusCode: http.StatusForbidden},
+			ok:   false,
+		},
+		{
+			name: "unauthenticated challenge",
+			err: &APIError{StatusCode: http.StatusUnauthorized, Headers: challenge(
+				`Bearer resource_metadata="https://api.assinafy.com.br/.well-known/oauth-protected-resource"`)},
+			ok: false,
+		},
+		{"malformed challenge", &APIError{Headers: challenge("Bearer error=insufficient_scope")}, "", false},
+		{"not an API error", errors.New("other"), "", false},
+		{"typed nil", error((*APIError)(nil)), "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scope, ok := InsufficientScope(tc.err)
+			if scope != tc.scope || ok != tc.ok {
+				t.Errorf("got (%q, %v), want (%q, %v)", scope, ok, tc.scope, tc.ok)
+			}
+		})
+	}
+}
+
+func TestInsufficientScopeReadsEveryChallenge(t *testing.T) {
+	err := &APIError{StatusCode: http.StatusForbidden, Headers: http.Header{"Www-Authenticate": []string{
+		`Basic realm="other"`,
+		`Bearer error="insufficient_scope", scope="templates:write"`,
+	}}}
+	if scope, ok := InsufficientScope(err); scope != "templates:write" || !ok {
+		t.Fatalf("got (%q, %v)", scope, ok)
+	}
+}

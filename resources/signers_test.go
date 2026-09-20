@@ -177,3 +177,85 @@ func TestSignatureUploadValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCertificateSignatureHandshake(t *testing.T) {
+	t.Run("start returns the web pki token", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/signers/certificate/start" {
+				t.Errorf("request = %s %s", r.Method, r.URL.Path)
+			}
+			assertNoClientAuth(t, r)
+			if got := r.URL.Query().Get("signer-access-code"); got != "code1" {
+				t.Errorf("signer-access-code = %q", got)
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"token":"webpki-token"}}`)
+		})
+
+		start, err := NewSignerResource(httpClient, "acc1").StartCertificateSignature(context.Background(), "code1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if start.Token != "webpki-token" {
+			t.Fatalf("start = %+v", start)
+		}
+	})
+
+	t.Run("complete returns the certificate holder", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/signers/certificate/complete" {
+				t.Errorf("request = %s %s", r.Method, r.URL.Path)
+			}
+			assertNoClientAuth(t, r)
+			want := map[string]any{"token": "webpki-token", "signature": "MEUCIQ"}
+			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
+				t.Errorf("body = %#v, want %#v", got, want)
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"signerName":"MARIA SILVA:39053344705"}}`)
+		})
+
+		result, err := NewSignerResource(httpClient, "acc1").CompleteCertificateSignature(
+			context.Background(), "code1",
+			&models.CompleteCertificateSignatureRequest{Token: "webpki-token", Signature: "MEUCIQ"},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.SignerName != "MARIA SILVA:39053344705" {
+			t.Fatalf("result = %+v", result)
+		}
+	})
+
+	t.Run("complete carries deployment-specific fields", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			want := map[string]any{"token": "t", "certificate": "MIIF"}
+			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
+				t.Errorf("body = %#v, want %#v", got, want)
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"signerName":"n"}}`)
+		})
+
+		// The route has no published schema, so Extra keeps an unforeseen field
+		// reachable without an SDK release.
+		if _, err := NewSignerResource(httpClient, "acc1").CompleteCertificateSignature(
+			context.Background(), "code1",
+			&models.CompleteCertificateSignatureRequest{Token: "t", Extra: map[string]any{"certificate": "MIIF"}},
+		); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("errors are returned", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSONResponse(w, `{"status":400,"message":"Dados do signatário devem ser confirmados."}`)
+		})
+
+		r := NewSignerResource(httpClient, "acc1")
+		if _, err := r.StartCertificateSignature(context.Background(), "code1"); !sdkerrors.IsStatusCode(err, http.StatusBadRequest) {
+			t.Errorf("start err = %v", err)
+		}
+		if _, err := r.CompleteCertificateSignature(context.Background(), "code1", &models.CompleteCertificateSignatureRequest{Token: "t"}); !sdkerrors.IsStatusCode(err, http.StatusBadRequest) {
+			t.Errorf("complete err = %v", err)
+		}
+	})
+}

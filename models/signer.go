@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // Signer is the canonical signer object.
 type Signer struct {
 	// Resource is the API resource discriminator when present.
@@ -90,6 +92,53 @@ type ConfirmSignerDataRequest struct {
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
 	// HasAcceptedTerms optionally records terms acceptance for this signing session.
 	HasAcceptedTerms *bool `json:"has_accepted_terms,omitempty"`
+}
+
+// StartCertificateSignatureResult is the data payload of
+// POST /signers/certificate/start. It opens the ICP-Brasil handshake for a
+// signer whose verification method is VerificationMethodDigitalCertificate.
+type StartCertificateSignatureResult struct {
+	// Token identifies the Web PKI signing operation. Hand it to the browser
+	// extension, which signs it with the signer's A1 or A3 certificate, then
+	// return it in CompleteCertificateSignatureRequest.
+	Token string `json:"token"`
+}
+
+// CompleteCertificateSignatureRequest is the body for
+// POST /signers/certificate/complete, sent once the browser extension has
+// signed the token from the start call.
+//
+// Assinafy has not published a schema for this route, so the fields below are
+// the ones its signing flow uses. Extra carries any further field a deployment
+// expects, without waiting for an SDK release.
+type CompleteCertificateSignatureRequest struct {
+	// Token is the value returned by StartCertificateSignatureResult.
+	Token string `json:"token"`
+	// Signature is the value produced by the Web PKI extension, when the
+	// deployment expects the signature to be posted back separately. Empty omits it.
+	Signature string `json:"signature,omitempty"`
+	// Extra adds fields to the request body. Its keys override Token and
+	// Signature, so it can also correct them.
+	Extra map[string]any `json:"-"`
+}
+
+// MarshalJSON emits the known fields and merges Extra over them.
+func (r CompleteCertificateSignatureRequest) MarshalJSON() ([]byte, error) {
+	body := map[string]any{"token": r.Token}
+	if r.Signature != "" {
+		body["signature"] = r.Signature
+	}
+	for key, value := range r.Extra {
+		body[key] = value
+	}
+	return json.Marshal(body)
+}
+
+// CompleteCertificateSignatureResult is the data payload of
+// POST /signers/certificate/complete.
+type CompleteCertificateSignatureResult struct {
+	// SignerName is the name read from the certificate that signed the document.
+	SignerName string `json:"signerName"`
 }
 
 // SignerReference identifies a signer inside a CreateAssignmentRequest.

@@ -246,6 +246,59 @@ func (r *SignerResource) uploadSignature(ctx context.Context, signerAccessCode, 
 	return err
 }
 
+// StartCertificateSignature opens the ICP-Brasil handshake for a signer whose
+// verification method is models.VerificationMethodDigitalCertificate, and
+// returns the Web PKI operation token. It authenticates with signerAccessCode
+// and needs no client credential.
+//
+// Those signers cannot use AssignmentResource.Sign, which rejects them with a
+// 400; their signature is produced by this two-step exchange instead. Before it
+// can run, the signer must have confirmed their data and accepted the terms,
+// which one call to ConfirmDataAndGet can do together. Hand the returned token
+// to the browser's Web PKI extension, which signs it with the signer's A1 or A3
+// certificate, then call CompleteCertificateSignature. Once the document
+// closes, its "pades" artifact carries the qualified signature.
+//
+// POST /signers/certificate/start.
+//
+// The route exists in production and sandbox but Assinafy publishes no schema
+// for it, so its request and response shapes are not covered by the OpenAPI
+// description and may change without a version bump.
+func (r *SignerResource) StartCertificateSignature(ctx context.Context, signerAccessCode string) (*models.StartCertificateSignatureResult, error) {
+	var out models.StartCertificateSignatureResult
+	_, err := r.http.NewRequest(http.MethodPost, "/signers/certificate/start").
+		WithoutAuth().
+		WithQuery("signer-access-code", signerAccessCode).
+		Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CompleteCertificateSignature finishes the ICP-Brasil handshake started by
+// StartCertificateSignature, applying the certificate signature the browser
+// extension produced, and returns the name read from that certificate. It
+// authenticates with signerAccessCode and needs no client credential.
+//
+// POST /signers/certificate/complete.
+//
+// See StartCertificateSignature for the unpublished-contract caveat; use
+// models.CompleteCertificateSignatureRequest.Extra to send any field a
+// deployment expects beyond the documented ones.
+func (r *SignerResource) CompleteCertificateSignature(ctx context.Context, signerAccessCode string, body *models.CompleteCertificateSignatureRequest) (*models.CompleteCertificateSignatureResult, error) {
+	var out models.CompleteCertificateSignatureResult
+	_, err := r.http.NewRequest(http.MethodPost, "/signers/certificate/complete").
+		WithoutAuth().
+		WithQuery("signer-access-code", signerAccessCode).
+		WithBody(body).
+		Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // DownloadSignature authenticates with signerAccessCode and returns raw bytes for
 // the requested signature type. A missing saved image produces an API error.
 // GET /signature/{type}.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,5 +239,76 @@ func TestUploadAndRequestSignaturesReturnsPartialResult(t *testing.T) {
 	}
 	if result == nil || result.Document == nil || result.Document.ID != "doc-1" || result.Assignment != nil || len(result.SignerIDs) != 1 || result.SignerIDs[0] != "signer-1" {
 		t.Errorf("partial result = %+v", result)
+	}
+}
+
+// staticTokenSource is a ClientOptions.TokenSource that hands out one token.
+type staticTokenSource string
+
+func (s staticTokenSource) Token(context.Context) (string, error) { return string(s), nil }
+
+func TestClientAuthenticatesFromATokenSource(t *testing.T) {
+	var authorization, apiKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization, apiKey = r.Header.Get("Authorization"), r.Header.Get("X-Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(ClientOptions{
+		BaseURL:     srv.URL,
+		TokenSource: staticTokenSource("oauth-access-token"),
+		AccountID:   "acc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Accounts.List(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// An OAuth token is refused as X-Api-Key or in the query string, so it must
+	// travel as a bearer credential.
+	if authorization != "Bearer oauth-access-token" || apiKey != "" {
+		t.Fatalf("authorization = %q, api key = %q", authorization, apiKey)
+	}
+}
+
+func TestStaticCredentialsOutrankATokenSource(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts ClientOptions
+		want string
+	}{
+		{"api key wins", ClientOptions{APIKey: "static-key", TokenSource: staticTokenSource("oauth")}, "key:static-key"},
+		{"token wins over source", ClientOptions{Token: "static-token", TokenSource: staticTokenSource("oauth")}, "bearer:static-token"},
+		{"source used alone", ClientOptions{TokenSource: staticTokenSource("oauth")}, "bearer:oauth"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if key := r.Header.Get("X-Api-Key"); key != "" {
+					got = "key:" + key
+				} else {
+					got = "bearer:" + strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"status":200,"data":[]}`)
+			}))
+			defer srv.Close()
+
+			opts := tc.opts
+			opts.BaseURL = srv.URL
+			client, err := NewClient(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.Accounts.List(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("credential = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

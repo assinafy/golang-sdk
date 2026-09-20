@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -693,5 +695,88 @@ func TestHTTPClientReturnsApplicationLevelAPIError(t *testing.T) {
 	}
 	if apiErr.Data == nil {
 		t.Fatal("expected API error data")
+	}
+}
+
+func TestTokenSourceAuthenticatesEveryRequestShape(t *testing.T) {
+	var calls int
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if key := r.Header.Get("X-Api-Key"); key != "" {
+			t.Errorf("token-source client sent an API key: %q", key)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":{}}`)
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClientWithTokenSource(srv.URL, func(context.Context) (string, error) {
+		calls++
+		return fmt.Sprintf("token-%d", calls), nil
+	}, time.Second)
+
+	ctx := context.Background()
+	if _, err := client.NewRequest(http.MethodGet, "/a").Execute(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UploadMultipart(ctx, "/b", "file", "f.pdf", []byte("%PDF-1.4"), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Download(ctx, "/c", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh token per request is the point: an OAuth access token expires hourly.
+	want := []string{"Bearer token-1", "Bearer token-2", "Bearer token-3"}
+	if !reflect.DeepEqual(seen, want) {
+		t.Fatalf("authorization headers = %v, want %v", seen, want)
+	}
+}
+
+func TestTokenSourceIsSkippedForUnauthenticatedRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("public request carried %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":200,"data":{}}`)
+	}))
+	defer srv.Close()
+
+	client := NewHTTPClientWithTokenSource(srv.URL, func(context.Context) (string, error) {
+		t.Error("the token source was consulted for a public request")
+		return "", nil
+	}, time.Second)
+
+	ctx := context.Background()
+	if _, err := client.NewRequest(http.MethodGet, "/public").WithoutAuth().Execute(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DownloadUnauthenticated(ctx, "/public", nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTokenSourceFailureStopsTheRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("the request was sent without a token")
+	}))
+	defer srv.Close()
+
+	tokenErr := errors.New("refresh token expired")
+	client := NewHTTPClientWithTokenSource(srv.URL, func(context.Context) (string, error) {
+		return "", tokenErr
+	}, time.Second)
+
+	ctx := context.Background()
+	if _, err := client.NewRequest(http.MethodGet, "/a").Execute(ctx, nil); !errors.Is(err, tokenErr) {
+		t.Errorf("JSON request err = %v", err)
+	}
+	if _, err := client.UploadMultipart(ctx, "/b", "file", "f.pdf", []byte("%PDF-1.4"), nil, nil); !errors.Is(err, tokenErr) {
+		t.Errorf("upload err = %v", err)
+	}
+	if _, err := client.Download(ctx, "/c", nil); !errors.Is(err, tokenErr) {
+		t.Errorf("download err = %v", err)
 	}
 }

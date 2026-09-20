@@ -1,8 +1,12 @@
-// Package assinafy is the Go SDK for the Assinafy API.
+// Package assinafy is the Go SDK for the Assinafy API, the Brazilian electronic
+// document-signature platform.
 //
 // See https://api.assinafy.com.br/v1/docs for the upstream documentation.
 //
-// Typical usage:
+// # Automating your own workspace
+//
+// Use an API key, created from the settings page in the Assinafy app. It is
+// permanent and scoped to the user who created it:
 //
 //	client, err := assinafy.NewClient(assinafy.ClientOptions{
 //	    APIKey:    os.Getenv("ASSINAFY_API_KEY"),
@@ -12,6 +16,25 @@
 //	    log.Fatal(err)
 //	}
 //	docs, err := client.Documents.List(ctx, "", nil)
+//
+// # Building an application other people connect
+//
+// Do not ask for their API key. Use the [github.com/assinafy/golang-sdk/oauth]
+// package, which gives your application a token limited to the scopes one user
+// approved in one workspace, and pass its token source to the client:
+//
+//	source := oauth.NewTokenSource(config, token, saveToken)
+//	client, err := assinafy.NewClient(assinafy.ClientOptions{
+//	    TokenSource: source,
+//	    AccountID:   workspaceID,
+//	})
+//
+// # Errors
+//
+// Every method returns *errors.APIError for a non-success response,
+// *errors.NetworkError for a transport failure, and a wrapped cause for a local
+// encoding or validation failure. See [github.com/assinafy/golang-sdk/errors]
+// for the retry and missing-scope helpers.
 package assinafy
 
 import (
@@ -81,13 +104,32 @@ type Client struct {
 	PublicDocuments *resources.PublicDocumentResource
 }
 
+// TokenSource supplies a bearer access token for each request. The oauth
+// package's TokenSource implements it, renewing an expired OAuth access token
+// from its refresh token before the request goes out.
+type TokenSource interface {
+	// Token returns the access token to send as Authorization: Bearer.
+	Token(ctx context.Context) (string, error)
+}
+
 // ClientOptions configures Client construction.
 type ClientOptions struct {
 	// APIKey is the permanent credential sent in X-Api-Key. It takes precedence
-	// over Token when both are set; leave both empty for public or signer flows.
+	// over Token and TokenSource; leave all three empty for public or signer flows.
 	APIKey string
-	// Token is a JWT access token sent as Authorization: Bearer when APIKey is empty.
+	// Token is a JWT access token sent as Authorization: Bearer when APIKey is
+	// empty. It takes precedence over TokenSource.
 	Token string
+	// TokenSource resolves a bearer token per request, used when APIKey and
+	// Token are both empty. Use it for OAuth connections, where the access token
+	// expires hourly and is renewed from a refresh token:
+	//
+	//	source := oauth.NewTokenSource(cfg, token, saveToken)
+	//	client, err := assinafy.NewClient(assinafy.ClientOptions{TokenSource: source})
+	//
+	// An OAuth token works for exactly one workspace, the one the user chose, so
+	// pair each TokenSource with that workspace's AccountID.
+	TokenSource TokenSource
 	// AccountID is the optional default account identifier. Account-scoped methods
 	// use it when their accountID argument is empty; an empty result is rejected locally.
 	AccountID string
@@ -117,6 +159,9 @@ func NewClient(opts ClientOptions) (*Client, error) {
 	}
 
 	httpClient := internal.NewHTTPClient(opts.BaseURL, opts.APIKey, opts.Token, opts.Timeout)
+	if opts.APIKey == "" && opts.Token == "" && opts.TokenSource != nil {
+		httpClient = internal.NewHTTPClientWithTokenSource(opts.BaseURL, opts.TokenSource.Token, opts.Timeout)
+	}
 
 	return &Client{
 		accountID:       opts.AccountID,
