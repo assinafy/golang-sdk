@@ -2,10 +2,12 @@ package resources
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
 )
@@ -69,6 +71,9 @@ func (r *AssignmentResource) EstimateCostWithRequest(ctx context.Context, docume
 }
 
 func (r *AssignmentResource) estimateCost(ctx context.Context, documentID string, body any) (*models.CostEstimate, error) {
+	if err := requireEstimateSigners(body); err != nil {
+		return nil, err
+	}
 	var out models.CostEstimate
 	path := "/documents/" + url.PathEscape(documentID) + "/assignments/estimate-cost"
 	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
@@ -76,6 +81,34 @@ func (r *AssignmentResource) estimateCost(ctx context.Context, documentID string
 		return nil, err
 	}
 	return &out, nil
+}
+
+// requireEstimateSigners rejects a signer-less cost estimate before it reaches the network.
+//
+// The published contract marks signers as required only for the virtual method, but the API
+// prices per signer in both modes and answers a signer-less body with
+// 400 "Pelo menos um signatários precisa ser informado." The request structs tag Signers
+// omitempty, so an empty slice would drop the key entirely and the call could never succeed.
+func requireEstimateSigners(body any) error {
+	var count int
+	switch request := body.(type) {
+	case *models.EstimateAssignmentCostRequest:
+		if request == nil {
+			return fmt.Errorf("%w: cost estimate body is nil", sdkerrors.ErrInvalidInput)
+		}
+		count = len(request.Signers)
+	case *models.CreateAssignmentRequest:
+		if request == nil {
+			return fmt.Errorf("%w: cost estimate body is nil", sdkerrors.ErrInvalidInput)
+		}
+		count = len(request.Signers) + len(request.SignerIDs)
+	default:
+		return nil
+	}
+	if count == 0 {
+		return fmt.Errorf("%w: at least one signer is required for a cost estimate", sdkerrors.ErrInvalidInput)
+	}
+	return nil
 }
 
 // ResendNotification uses client authentication, re-sends one signer's

@@ -3,12 +3,14 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"reflect"
 	"testing"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/models"
 )
 
@@ -33,6 +35,55 @@ func TestAssignmentContractMethods(t *testing.T) {
 		}
 		if result.Documents != 1 {
 			t.Fatalf("result = %+v", result)
+		}
+	})
+
+	t.Run("collect estimate carries signers alongside entries", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			want := map[string]any{
+				"method":  "collect",
+				"signers": []any{map[string]any{"verification_method": "DigitalCertificate"}},
+				"entries": []any{map[string]any{"page_id": "p1"}},
+			}
+			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
+				t.Errorf("body = %#v, want %#v", got, want)
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"documents":1,"credits":2}}`)
+		})
+
+		if _, err := NewAssignmentResource(httpClient).EstimateCostWithRequest(context.Background(), "d1", &models.EstimateAssignmentCostRequest{
+			Method:  models.MethodCollect,
+			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: "DigitalCertificate"}},
+			Entries: []any{map[string]any{"page_id": "p1"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	// The API refuses a signer-less estimate in either mode, and omitempty would drop the key.
+	t.Run("estimate without signers fails before the network", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			t.Error("request must not be sent")
+		})
+		resource := NewAssignmentResource(httpClient)
+
+		for name, body := range map[string]any{
+			"dedicated body": &models.EstimateAssignmentCostRequest{Method: models.MethodCollect,
+				Entries: []any{map[string]any{"page_id": "p1"}}},
+			"legacy body":   &models.CreateAssignmentRequest{Method: models.MethodVirtual},
+			"nil dedicated": (*models.EstimateAssignmentCostRequest)(nil),
+			"nil legacy":    (*models.CreateAssignmentRequest)(nil),
+		} {
+			var err error
+			switch request := body.(type) {
+			case *models.EstimateAssignmentCostRequest:
+				_, err = resource.EstimateCostWithRequest(context.Background(), "d1", request)
+			case *models.CreateAssignmentRequest:
+				_, err = resource.EstimateCost(context.Background(), "d1", request)
+			}
+			if !errors.Is(err, sdkerrors.ErrInvalidInput) {
+				t.Errorf("%s: err = %v, want ErrInvalidInput", name, err)
+			}
 		}
 	})
 
