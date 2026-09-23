@@ -101,7 +101,7 @@ func TestAuthorizationURL(t *testing.T) {
 	raw, err := cfg.AuthorizationURL(AuthorizationRequest{
 		State:         "state-1",
 		CodeChallenge: "challenge-1",
-		Scopes:        []string{ScopeDocumentsWrite, ScopeOfflineAccess},
+		Scopes:        []string{ScopeDocumentsWrite, ScopeWebhooksWrite, ScopeOfflineAccess},
 		Nonce:         "nonce-1",
 	})
 	if err != nil {
@@ -121,7 +121,7 @@ func TestAuthorizationURL(t *testing.T) {
 		"state":                 "state-1",
 		"code_challenge":        "challenge-1",
 		"code_challenge_method": ChallengeMethod,
-		"scope":                 ScopeDocumentsWrite + " " + ScopeOfflineAccess,
+		"scope":                 ScopeDocumentsWrite + " " + ScopeWebhooksWrite + " " + ScopeOfflineAccess,
 		"nonce":                 "nonce-1",
 		"resource":              DefaultResource,
 	}

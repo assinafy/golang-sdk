@@ -547,6 +547,7 @@ user reads before deciding, and they approve everything or nothing.
 | `oauth.ScopeTemplatesRead` | Read templates |
 | `oauth.ScopeTemplatesWrite` | Create and change templates |
 | `oauth.ScopeAccountRead` | Read the workspace's profile, theme, and logo |
+| `oauth.ScopeWebhooksWrite` | Configure and deactivate the workspace webhook subscription |
 | `oauth.ScopeOpenID` | Receive an `id_token` identifying the user, and call `UserInfo` |
 | `oauth.ScopeProfile` | Read the user's name |
 | `oauth.ScopeEmail` | Read the user's email and whether it is verified |

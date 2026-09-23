@@ -544,6 +544,7 @@ antes de decidir, e ele aprova tudo ou nada.
 | `oauth.ScopeTemplatesRead` | Ler modelos |
 | `oauth.ScopeTemplatesWrite` | Criar e alterar modelos |
 | `oauth.ScopeAccountRead` | Ler o perfil, o tema e o logotipo da conta |
+| `oauth.ScopeWebhooksWrite` | Configurar e desativar a assinatura de webhooks da conta |
 | `oauth.ScopeOpenID` | Receber um `id_token` identificando o usuário, e chamar `UserInfo` |
 | `oauth.ScopeProfile` | Ler o nome do usuário |
 | `oauth.ScopeEmail` | Ler o e-mail do usuário e se ele está verificado |
