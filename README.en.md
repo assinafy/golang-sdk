@@ -526,17 +526,66 @@ client, err = assinafy.NewClient(assinafy.ClientOptions{
 ```
 
 The token source renews an expiring access token from the refresh token before
-each request. Access tokens last an hour; a connection lasts **30 days from the
-user's approval**, and refreshing does not extend it, so plan for users to
-reconnect monthly.
+each request. Access tokens last an hour. A refresh token is valid for **30
+days**, and every refresh returns a new one with a fresh 30 days; a connection
+only expires if your app goes 30 days without refreshing, and then the user has
+to reconnect.
 
 > **Every refresh rotates the refresh token and retires the old one.** Replaying
 > a retired refresh token cannot be told apart from a stolen one, so the server
 > ends the whole connection. Save the new token in `onRefresh` before anything
-> else — returning an error there aborts the refresh, so your storage is never
-> left holding a dead token — treat a timeout as "maybe it worked" and re-read
-> what you saved, and refresh one connection at a time. `TokenSource` serializes
-> its own refreshes, so concurrent callers share one.
+> else — if it returns an error, no access token is handed out, and the source
+> keeps the new token, never the retired one; the next call saves it before
+> anything else, another refresh included. Until a save succeeds, the new token
+> exists only in that process: if it exits first, your storage still holds the
+> retired token and the user has to reconnect. Save to durable storage, and treat
+> a failed save as an incident.
+>
+> A refresh and its save run in the background: they finish even when the
+> request that started them is canceled or times out, which then returns its
+> context's error, and every caller waits for them on its own context. A panic
+> in `onRefresh` comes back as an error. `onRefresh` gets no context; to bound a
+> slow save, build the source with `oauth.NewTokenSourceContext`, whose save
+> receives a context that ends after a minute. To persist the connection
+> yourself, for instance on shutdown, stop the calls that use the source and
+> take `source.Latest(ctx)`, which waits for a refresh in flight and reports
+> whether its token is saved — `Current` does not wait, so it can return the
+> token being replaced. Keep storage writes ordered, for instance by keeping the
+> token with the later `Expiry`, so an older token never overwrites a newer one.
+>
+> Treat a refresh that may have reached the server without an answer as "maybe
+> it worked": a timeout, a dropped connection, a redirect or `5xx`, or a success
+> response without a new refresh token. `Config.Refresh` wraps those in
+> `oauth.ErrRefreshIndeterminate`, and a `TokenSource` that meets one — or
+> `invalid_grant` — stops refreshing and returns the same error from then on.
+> The refresh token it sent may be retired, so never send it again: `Current`
+> still returns it, and only a different token in your storage, saved since by
+> another instance, can take its place; otherwise ask the user to reconnect. A
+> failure before anything was sent (DNS, a refused connection, a TLS handshake)
+> is retried on the next call. Never put the token endpoint behind an automatic
+> retry; the SDK does not follow its redirects, nor let the transport resend it.
+>
+> Refresh one connection at a time: `TokenSource` runs one refresh at a time, so
+> concurrent callers share one, but only within one process. When several
+> instances serve the same connection, implement `assinafy.TokenSource` over
+> `Config.Refresh` with a lock in your token store, re-reading the saved token
+> before refreshing.
+
+```go
+_, err := client.Documents.List(ctx, "", nil)
+switch {
+case stderrors.Is(err, oauth.ErrRefreshIndeterminate):
+	saved, loadErr := store.LoadTokens(userID)
+	if loadErr != nil || saved.RefreshToken == source.Current().RefreshToken {
+		// The token sent may be retired and must not be sent again: ask the
+		// user to connect again.
+	} else {
+		// Another instance saved a newer token: build a new source from saved.
+	}
+case oauth.ErrorCode(err) == oauth.ErrCodeInvalidGrant:
+	// The connection is over: ask the user to connect again.
+}
+```
 
 **Permissions.** Request the minimum; every extra permission is another line the
 user reads before deciding, and they approve everything or nothing.
@@ -575,11 +624,32 @@ RS256 JWT saying who approved. Validate it with any OpenID Connect library
 against the issuer's JWKS, then read the user's name and email from
 `config.UserInfo(ctx, accessToken)`.
 
-**Disconnecting.** When a user disconnects in your product, revoke the token
-rather than only deleting it. Revocation always answers success:
+**Disconnecting.** When a user disconnects in your product, revoke the refresh
+token rather than only deleting it. Revoke the one saved last, not a copy kept
+from the code exchange: every refresh retires the previous token, and
+revocation answers success even for a retired one, so revoking a stale value
+leaves the connection working. Make sure no refresh can rotate it while you
+read it: stop the requests that use the connection's client, then call `Token`
+once more. It waits for a refresh still running, and succeeds only when the
+refresh token in use is known and saved; if it fails, keep everything and
+report that the disconnect did not complete. With several instances, hold the
+lock your refreshes take instead. Delete the stored token only once revocation
+succeeds; otherwise keep it and try again:
 
 ```go
-err := config.Revoke(ctx, refreshToken, oauth.HintRefreshToken)
+// Only a dead grant (invalid_grant) may go on without a confirmed token.
+if _, err := source.Token(ctx); err != nil && oauth.ErrorCode(err) != oauth.ErrCodeInvalidGrant {
+	return err
+}
+
+saved, err := store.LoadTokens(userID) // the refresh token saved last
+if err != nil {
+	return err
+}
+if err := config.Revoke(ctx, saved.RefreshToken, oauth.HintRefreshToken); err != nil {
+	return err // not confirmed: keep the stored token and try again later
+}
+return store.DeleteTokens(userID)
 ```
 
 **Discovery.** The endpoint URLs are published by the authorization server, and
@@ -593,12 +663,14 @@ config.Endpoint = metadata.Endpoint()
 ```
 
 Before going live: a new PKCE pair and state per attempt; `state` and `iss`
-checked; the secret only on your server; the rotated refresh token saved before
-use; `401` handled by refreshing and, failing that, asking the user to reconnect;
-every production redirect URI registered, `https://`, and matched exactly. New
-applications are unverified — the approval screen says so and they can connect to
-at most 25 workspaces — so ask Assinafy to verify yours before launching beyond a
-pilot. The authorize and token endpoints accept 50 requests per minute per IP.
+checked; the secret only on your server; the rotated refresh token saved durably
+before use; `oauth.ErrRefreshIndeterminate` handled without ever sending that
+refresh token again; `401` handled by refreshing and, failing that, asking the
+user to reconnect; every production redirect URI registered, `https://`, and
+matched exactly. New applications are unverified — the approval screen says so
+and they can connect to at most 25 workspaces — so ask Assinafy to verify yours
+before launching beyond a pilot. The authorize and token endpoints accept 50
+requests per minute per IP.
 
 ## Creating documents from templates
 

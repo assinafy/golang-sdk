@@ -140,5 +140,5 @@ func fetchMetadata(ctx context.Context, cfg *Config, base, wellKnownPath string,
 		return fmt.Errorf("assinafy/oauth: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	return cfg.do(req, result)
+	return cfg.do(cfg.httpClient(), req, result)
 }

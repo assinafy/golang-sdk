@@ -58,8 +58,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/assinafy/golang-sdk/internal"
@@ -159,7 +161,7 @@ var (
 	// is not the one that was sent. The response is not yours; do not use it.
 	ErrStateMismatch = errors.New("assinafy/oauth: callback state does not match")
 	// ErrIssuerMismatch is returned by Config.ParseCallback when the iss parameter
-	// is not the configured authorization server.
+	// is missing or is not the configured authorization server.
 	ErrIssuerMismatch = errors.New("assinafy/oauth: callback issuer does not match")
 	// ErrNoCode is returned by Config.ParseCallback when the callback carries
 	// neither an authorization code nor an error.
@@ -169,6 +171,12 @@ var (
 	ErrNoRefreshToken = errors.New("assinafy/oauth: no refresh token; request the offline_access scope")
 	// ErrMissingToken is returned when a required token argument is empty.
 	ErrMissingToken = errors.New("assinafy/oauth: token is required")
+	// ErrRefreshIndeterminate is wrapped around a refresh failure whose outcome
+	// is unknown: the request may have reached the server, which may have rotated
+	// the refresh token and retired the one sent. Sending that token again could
+	// end the connection, so never send it again: continue only with a different
+	// refresh token saved since, and otherwise ask the user to connect again.
+	ErrRefreshIndeterminate = errors.New("assinafy/oauth: refresh outcome unknown; the refresh token may have been retired")
 )
 
 // Error is an OAuth error response. The authorization server answers a failed
@@ -279,7 +287,13 @@ type Config struct {
 	// send no resource indicator at all.
 	Resource string
 	// HTTPClient performs the server-to-server calls. A nil value uses a client
-	// with a 30-second timeout.
+	// with a 30-second timeout that requires TLS 1.2 or newer. Never give it a
+	// transport that retries on its own: a retried refresh replays a retired
+	// refresh token and ends the connection, and a code can be exchanged once.
+	// Token and revocation requests never follow a redirect, whatever its
+	// CheckRedirect says; a redirect is returned as an *Error. A refresh that
+	// fails in any Transport other than an *http.Transport is treated as one
+	// that may have reached the server.
 	HTTPClient *http.Client
 }
 
@@ -388,7 +402,7 @@ func (c *Config) ParseCallback(callbackURL *url.URL, wantState string) (string, 
 	if wantState == "" || !constantTimeEqual(query.Get("state"), wantState) {
 		return "", ErrStateMismatch
 	}
-	if issuer := query.Get("iss"); issuer != "" && issuer != c.Endpoint.resolve().Issuer {
+	if query.Get("iss") != c.Endpoint.resolve().Issuer {
 		return "", ErrIssuerMismatch
 	}
 	if code := query.Get("error"); code != "" {
@@ -485,10 +499,18 @@ func (c *Config) Exchange(ctx context.Context, code, codeVerifier string) (*Toke
 // Save the returned RefreshToken before doing anything else with the response,
 // and refresh one connection at a time. A reused refresh token cannot be told
 // apart from a stolen one being replayed, so the server ends the whole
-// connection and the user must approve the application again. Treat a timeout
-// as "maybe it worked": re-read the token you saved rather than retrying with
-// the old one. Connections last 30 days from approval and refreshing does not
-// extend them.
+// connection and the user must approve the application again. A refresh token
+// is valid for 30 days, and every refresh returns a new one with a fresh 30
+// days, so a connection expires only after 30 days without a refresh.
+//
+// A failure after the request may have reached the server wraps
+// ErrRefreshIndeterminate: a timeout or dropped connection, a 3xx or 5xx
+// answer, or a success response that cannot be read or carries no new refresh
+// token. The token sent may have been rotated and retired, so never send it
+// again: re-read the token you saved and continue only if it is a different one,
+// saved since; otherwise ask the user to connect again. A 4xx answer, such as
+// ErrCodeInvalidGrant, is returned as an *Error, and a failure before anything
+// was sent, such as a DNS, connection or TLS handshake error, as it occurred.
 func (c *Config) Refresh(ctx context.Context, refreshToken string) (*Token, error) {
 	if refreshToken == "" {
 		return nil, ErrNoRefreshToken
@@ -496,7 +518,24 @@ func (c *Config) Refresh(ctx context.Context, refreshToken string) (*Token, erro
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refreshToken)
-	return c.token(ctx, form)
+
+	token, err := c.token(ctx, form)
+	var unsettled *unsettledError
+	var answer *Error
+	switch {
+	// Only a 4xx says the server refused the refresh. A 3xx or 5xx, including a
+	// gateway timeout, can follow a rotation the server already made.
+	case errors.As(err, &unsettled),
+		errors.As(err, &answer) && (answer.StatusCode < http.StatusBadRequest || answer.StatusCode >= http.StatusInternalServerError):
+		return nil, fmt.Errorf("%w: %w", ErrRefreshIndeterminate, err)
+	case err != nil:
+		return nil, err
+	case token.RefreshToken == "":
+		// Every refresh rotates the token, so the one sent may be retired and
+		// must not be carried forward.
+		return nil, fmt.Errorf("%w: the response carries no refresh token", ErrRefreshIndeterminate)
+	}
+	return token, nil
 }
 
 func (c *Config) token(ctx context.Context, form url.Values) (*Token, error) {
@@ -581,7 +620,7 @@ func (c *Config) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	var info UserInfo
-	if err := c.do(req, &info); err != nil {
+	if err := c.do(c.httpClient(), req, &info); err != nil {
 		return nil, err
 	}
 	return &info, nil
@@ -594,19 +633,56 @@ func (c *Config) postForm(ctx context.Context, endpoint string, form url.Values,
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return c.do(req, result)
+	// A token or revocation request is sent once. Without GetBody the transport
+	// cannot rewind the form to send it again on its own, as HTTP/2 does after
+	// some stream resets, and a redirect is returned rather than followed: a 307
+	// or 308 would send the form, and any token in it, again.
+	req.GetBody = nil
+	client := *c.httpClient()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return c.do(&client, req, result)
 }
 
-func (c *Config) do(req *http.Request, result any) error {
-	resp, err := c.httpClient().Do(req)
+// unsettledError marks a failure after the request may have reached the server
+// and before a usable answer was read, so the server may have acted on it.
+type unsettledError struct{ err error }
+
+func (e *unsettledError) Error() string { return e.err.Error() }
+func (e *unsettledError) Unwrap() error { return e.err }
+
+func (c *Config) do(client *http.Client, req *http.Request, result any) error {
+	// A context that has already ended can stop the transport before it asks
+	// for a connection, which would leave the failure looking unsettled.
+	if err := req.Context().Err(); err != nil {
+		return fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), err)
+	}
+	// net/http's transport asks for a connection before it writes anything, so
+	// a failure after asking and before getting one sent nothing. Any other
+	// RoundTripper may report those steps differently, or not at all, so every
+	// failure it returns is unsettled.
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	_, known := transport.(*http.Transport)
+	var asked, connected atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GetConn: func(string) { asked.Store(true) },
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}))
+	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), redactTransportError(err))
+		err = fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), redactTransportError(err))
+		if known && asked.Load() && !connected.Load() {
+			return err
+		}
+		return &unsettledError{err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("assinafy/oauth: read response body: %w", err)
+		return &unsettledError{fmt.Errorf("assinafy/oauth: read response body: %w", err)}
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -616,7 +692,7 @@ func (c *Config) do(req *http.Request, result any) error {
 		return nil
 	}
 	if err := json.Unmarshal(body, result); err != nil {
-		return fmt.Errorf("assinafy/oauth: decode response: %w", err)
+		return &unsettledError{fmt.Errorf("assinafy/oauth: decode response: %w", err)}
 	}
 	return nil
 }

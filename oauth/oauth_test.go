@@ -2,13 +2,19 @@ package oauth
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"net/url"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -81,9 +87,13 @@ func TestResourceIndicator(t *testing.T) {
 	}
 }
 
-func TestHTTPClientDefaultsToATimeout(t *testing.T) {
-	if got := (&Config{}).httpClient(); got.Timeout != 30*time.Second {
+func TestHTTPClientDefaultsToATimeoutAndTLS12(t *testing.T) {
+	got := (&Config{}).httpClient()
+	if got.Timeout != 30*time.Second {
 		t.Errorf("timeout = %v", got.Timeout)
+	}
+	if tr, ok := got.Transport.(*http.Transport); !ok || tr.TLSClientConfig == nil || tr.TLSClientConfig.MinVersion != tls.VersionTLS12 {
+		t.Errorf("default transport must require TLS 1.2, got %#v", got.Transport)
 	}
 	custom := &http.Client{Timeout: time.Second}
 	if got := (&Config{HTTPClient: custom}).httpClient(); got != custom {
@@ -193,17 +203,10 @@ func TestParseCallback(t *testing.T) {
 		return u
 	}
 
-	code, err := cfg.ParseCallback(callback("code=abc&state=s1&iss="+url.QueryEscape(DefaultIssuer)), "s1")
+	iss := "&iss=" + url.QueryEscape(DefaultIssuer)
+	code, err := cfg.ParseCallback(callback("code=abc&state=s1"+iss), "s1")
 	if err != nil || code != "abc" {
 		t.Fatalf("code = %q, err = %v", code, err)
-	}
-
-	// An absent iss is tolerated; a wrong one is not.
-	if _, err := cfg.ParseCallback(callback("code=abc&state=s1"), "s1"); err != nil {
-		t.Fatalf("missing iss: %v", err)
-	}
-	if _, err := cfg.ParseCallback(callback("code=abc&state=s1&iss=https://evil.example"), "s1"); !errors.Is(err, ErrIssuerMismatch) {
-		t.Fatalf("err = %v, want ErrIssuerMismatch", err)
 	}
 
 	for _, tc := range []struct {
@@ -212,9 +215,12 @@ func TestParseCallback(t *testing.T) {
 		state string
 		want  error
 	}{
-		{"state mismatch", "code=abc&state=other", "s1", ErrStateMismatch},
-		{"empty expected state", "code=abc&state=", "", ErrStateMismatch},
-		{"no code", "state=s1", "s1", ErrNoCode},
+		{"state mismatch", "code=abc&state=other" + iss, "s1", ErrStateMismatch},
+		{"empty expected state", "code=abc&state=" + iss, "", ErrStateMismatch},
+		{"missing iss", "code=abc&state=s1", "s1", ErrIssuerMismatch},
+		{"wrong iss", "code=abc&state=s1&iss=https://evil.example", "s1", ErrIssuerMismatch},
+		{"error without iss", "error=access_denied&state=s1", "s1", ErrIssuerMismatch},
+		{"no code", "state=s1" + iss, "s1", ErrNoCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := cfg.ParseCallback(callback(tc.query), tc.state); !errors.Is(err, tc.want) {
@@ -228,7 +234,7 @@ func TestParseCallback(t *testing.T) {
 	}
 
 	// A declined approval arrives as an OAuth error on the redirect URI.
-	_, err = cfg.ParseCallback(callback("error=access_denied&error_description=no&state=s1"), "s1")
+	_, err = cfg.ParseCallback(callback("error=access_denied&error_description=no&state=s1"+iss), "s1")
 	if ErrorCode(err) != ErrCodeAccessDenied {
 		t.Fatalf("err = %v", err)
 	}
@@ -338,6 +344,155 @@ func TestRefreshSendsOnlyTheRefreshGrant(t *testing.T) {
 	}
 	if token.RefreshToken != "new-rt" {
 		t.Fatalf("token = %+v", token)
+	}
+}
+
+func TestTokenRequestsDoNotFollowRedirects(t *testing.T) {
+	var requests atomic.Int32
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/v1/oauth/token" {
+			t.Errorf("the redirect was followed to %s", r.URL.Path)
+			_, _ = io.WriteString(w, `{"access_token":"at","token_type":"Bearer","refresh_token":"rt-2"}`)
+			return
+		}
+		// A 307 asks for the same POST again, refresh token included.
+		http.Redirect(w, r, "/v1/oauth/token-moved", http.StatusTemporaryRedirect)
+	})
+	cfg := newTestConfig(srv)
+	client := cfg.HTTPClient
+
+	_, err := cfg.Refresh(context.Background(), "rt-1")
+	var oauthErr *Error
+	if !errors.As(err, &oauthErr) || oauthErr.StatusCode != http.StatusTemporaryRedirect || !errors.Is(err, ErrRefreshIndeterminate) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+	if client.CheckRedirect != nil {
+		t.Error("the configured client was modified")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestTokenRequestsCannotBeRewound(t *testing.T) {
+	var rewindable []string
+	cfg := &Config{ClientID: "c", HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// A transport resends a request on its own only when it can rewind the body.
+		if req.GetBody != nil {
+			rewindable = append(rewindable, req.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"at","token_type":"Bearer","refresh_token":"rt-2"}`)),
+			Request:    req,
+		}, nil
+	})}}
+
+	ctx := context.Background()
+	if _, err := cfg.Exchange(ctx, "code", "verifier"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Refresh(ctx, "rt-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Revoke(ctx, "rt-2", HintRefreshToken); err != nil {
+		t.Fatal(err)
+	}
+	if len(rewindable) > 0 {
+		t.Fatalf("rewindable requests: %v", rewindable)
+	}
+}
+
+func TestRefreshIsNotResentAfterAnHTTP2StreamReset(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	var requests atomic.Int32
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go resetEveryStream(conn, &requests)
+		}
+	}()
+
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	transport := &http.Transport{Protocols: &protocols}
+	t.Cleanup(transport.CloseIdleConnections)
+	cfg := &Config{
+		ClientID:   "c",
+		Endpoint:   Endpoint{TokenURL: "http://" + ln.Addr().String() + "/v1/oauth/token"},
+		HTTPClient: &http.Client{Transport: transport},
+	}
+
+	// The reset follows the whole request, so the server may have rotated rt-1
+	// and the transport must not send it again.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := cfg.Refresh(ctx, "rt-1"); !errors.Is(err, ErrRefreshIndeterminate) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+}
+
+// resetEveryStream speaks just enough unencrypted HTTP/2 to read each request
+// in full and answer it with RST_STREAM PROTOCOL_ERROR, a reset Go's transport
+// retries whenever it can rewind the request body.
+func resetEveryStream(conn net.Conn, requests *atomic.Int32) {
+	defer func() { _ = conn.Close() }()
+	write := func(frameType, flags byte, stream uint32, payload []byte) {
+		header := []byte{byte(len(payload) >> 16), byte(len(payload) >> 8), byte(len(payload)), frameType, flags, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(header[5:], stream)
+		_, _ = conn.Write(append(header, payload...))
+	}
+	if _, err := io.ReadFull(conn, make([]byte, len("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))); err != nil {
+		return
+	}
+	write(0x4, 0, 0, nil) // SETTINGS
+	for {
+		header := make([]byte, 9)
+		if _, err := io.ReadFull(conn, header); err != nil {
+			return
+		}
+		if _, err := io.ReadFull(conn, make([]byte, int(header[0])<<16|int(header[1])<<8|int(header[2]))); err != nil {
+			return
+		}
+		frameType, flags, stream := header[3], header[4], binary.BigEndian.Uint32(header[5:])&0x7fffffff
+		switch {
+		case frameType == 0x4 && flags&0x1 == 0: // SETTINGS, acknowledged
+			write(0x4, 0x1, 0, nil)
+		case (frameType == 0x0 || frameType == 0x1) && flags&0x1 != 0: // DATA or HEADERS with END_STREAM
+			requests.Add(1)
+			write(0x3, 0, stream, []byte{0, 0, 0, 0x1}) // RST_STREAM PROTOCOL_ERROR
+		}
+	}
+}
+
+func TestRefreshFailureInAnotherTransportMayHaveBeenSent(t *testing.T) {
+	cfg := &Config{ClientID: "c", HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// This transport reports asking for a connection, then sends the request
+		// without reporting that it got one.
+		if trace := httptrace.ContextClientTrace(req.Context()); trace != nil && trace.GetConn != nil {
+			trace.GetConn(req.URL.Host)
+		}
+		return nil, errors.New("connection reset after the request was written")
+	})}}
+
+	if _, err := cfg.Refresh(context.Background(), "rt-1"); !errors.Is(err, ErrRefreshIndeterminate) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -513,8 +668,11 @@ func TestMalformedSuccessBodyIsReported(t *testing.T) {
 	srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "not json")
 	})
-	if _, err := newTestConfig(srv).Exchange(context.Background(), "code", "verifier"); err == nil {
-		t.Fatal("expected a decoding error")
+	// The cause stays inspectable behind the SDK's wrapping.
+	_, err := newTestConfig(srv).Exchange(context.Background(), "code", "verifier")
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

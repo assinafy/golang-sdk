@@ -305,6 +305,7 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 	signerName := "Ada Updated"
 	tagName := "Priority"
 	maskedKey := "issued****"
+	agreementCode := "550E8400-E29B-41D4-A716-446655440000"
 	assignmentBody := models.CreateAssignmentRequest{
 		Method:  models.MethodVirtual,
 		Signers: []models.SignerReference{{ID: "signer-1"}},
@@ -426,11 +427,11 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 		},
 		{
 			name: "document verify", method: http.MethodGet, path: "/documents/hash%2F1/verify",
-			response: `{"status":200,"data":{"hash":"hash/1","is_valid":true,"message":"valid"}}`,
+			response: `{"status":200,"data":{"hash":"hash/1","agreement_code":"550E8400-E29B-41D4-A716-446655440000","is_valid":true,"message":"valid"}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
 				return NewDocumentResource(h, "").Verify(ctx, "hash/1")
 			},
-			want: &models.VerifyDocumentResult{Hash: "hash/1", IsValid: true, Message: "valid"},
+			want: &models.VerifyDocumentResult{Hash: "hash/1", AgreementCode: &agreementCode, IsValid: true, Message: "valid"},
 		},
 		{
 			name: "document list tags", method: http.MethodGet,

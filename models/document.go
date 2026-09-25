@@ -214,6 +214,8 @@ type VerifyDocumentResult struct {
 	Hash string `json:"hash"`
 	// ID is the nullable matched document identifier.
 	ID *string `json:"id,omitempty"`
+	// AgreementCode is the nullable agreement code printed on the document certificate.
+	AgreementCode *string `json:"agreement_code,omitempty"`
 	// Status is the nullable matched document lifecycle code.
 	Status *string `json:"status,omitempty"`
 	// PageCount is the nullable page count as encoded by the verification API.

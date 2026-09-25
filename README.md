@@ -522,18 +522,66 @@ client, err = assinafy.NewClient(assinafy.ClientOptions{
 ```
 
 O token source renova um token de acesso vencido a partir do refresh token antes de
-cada requisição. Tokens de acesso duram uma hora; uma conexão dura **30 dias a partir
-da aprovação do usuário**, e renovar não estende esse prazo — conte com reconexões
-mensais.
+cada requisição. Tokens de acesso duram uma hora. Um refresh token vale **30 dias**, e
+cada renovação devolve um novo, com mais 30 dias; a conexão só expira se a sua
+aplicação passar 30 dias sem renovar, e aí o usuário precisa conectar de novo.
 
 > **Toda renovação rotaciona o refresh token e aposenta o anterior.** Reapresentar um
 > refresh token aposentado é indistinguível de um token roubado sendo reusado, então
 > o servidor encerra a conexão inteira. Salve o token novo dentro de `onRefresh`
-> antes de qualquer outra coisa — devolver um erro ali aborta a renovação, de modo que
-> seu armazenamento nunca fica com um token morto —, trate um timeout como "talvez
-> tenha funcionado" e releia o que você salvou, e renove uma conexão por vez.
-> `TokenSource` serializa as próprias renovações, então chamadas concorrentes
-> compartilham uma só.
+> antes de qualquer outra coisa — se ele devolver um erro, nenhum token de acesso é
+> entregue, e o token source fica com o token novo, nunca com o aposentado; a chamada
+> seguinte o salva antes de qualquer outra coisa, inclusive outra renovação. Até um
+> salvamento dar certo, o token novo só existe naquele processo: se ele terminar antes,
+> seu armazenamento continua com o token aposentado e o usuário precisa conectar de
+> novo. Salve em armazenamento durável e trate uma falha ao salvar como um incidente.
+>
+> Uma renovação e o salvamento dela rodam em segundo plano: terminam mesmo quando a
+> requisição que os iniciou é cancelada ou estoura o prazo, e ela então devolve o erro
+> do próprio contexto; cada chamada espera por eles no próprio contexto. Um panic em
+> `onRefresh` volta como erro. `onRefresh` não recebe contexto; para limitar um
+> salvamento lento, crie o token source com `oauth.NewTokenSourceContext`, cujo
+> salvamento recebe um contexto que termina depois de um minuto. Para persistir a
+> conexão você mesmo, por exemplo ao encerrar o processo, pare as chamadas que usam o
+> token source e use `source.Latest(ctx)`, que espera uma renovação em andamento e
+> informa se o token dela está salvo — `Current` não espera, então pode devolver o
+> token que está sendo substituído. Mantenha as escritas no armazenamento ordenadas,
+> por exemplo ficando com o token de `Expiry` mais tarde, para que um token mais
+> velho nunca sobrescreva um mais novo.
+>
+> Trate uma renovação que pode ter chegado ao servidor sem resposta como "talvez tenha
+> funcionado": um timeout, uma conexão derrubada, um redirecionamento ou `5xx`, ou uma
+> resposta de sucesso sem refresh token novo. `Config.Refresh` envolve esses casos em
+> `oauth.ErrRefreshIndeterminate`, e um `TokenSource` que encontra um deles — ou
+> `invalid_grant` — para de renovar e devolve o mesmo erro dali em diante. O refresh
+> token enviado pode estar aposentado, então nunca o envie de novo: `Current` ainda o
+> devolve, e só um token diferente no seu armazenamento, salvo depois por outra
+> instância, pode tomar o lugar dele; senão, peça ao usuário que conecte de novo. Uma
+> falha antes de qualquer envio (DNS, conexão recusada, handshake TLS) é repetida na
+> chamada seguinte. Nunca deixe uma política de novas tentativas automáticas repetir
+> chamadas ao endpoint de token; o SDK não segue os redirecionamentos dele nem deixa
+> o transporte reenviá-las.
+>
+> Renove uma conexão por vez: `TokenSource` faz uma renovação por vez, então chamadas
+> concorrentes compartilham uma só, mas só dentro de um processo. Se várias instâncias
+> atenderem a mesma conexão, implemente `assinafy.TokenSource` sobre `Config.Refresh`
+> com uma trava no seu armazenamento de tokens, relendo o token salvo antes de renovar.
+
+```go
+_, err := client.Documents.List(ctx, "", nil)
+switch {
+case stderrors.Is(err, oauth.ErrRefreshIndeterminate):
+	saved, loadErr := store.LoadTokens(userID)
+	if loadErr != nil || saved.RefreshToken == source.Current().RefreshToken {
+		// O token enviado pode estar aposentado e não pode ser enviado de novo:
+		// peça ao usuário que conecte de novo.
+	} else {
+		// Outra instância salvou um token mais novo: crie um token source com ele.
+	}
+case oauth.ErrorCode(err) == oauth.ErrCodeInvalidGrant:
+	// A conexão acabou: peça ao usuário que conecte de novo.
+}
+```
 
 **Permissões.** Peça o mínimo; cada permissão a mais é outra linha que o usuário lê
 antes de decidir, e ele aprova tudo ou nada.
@@ -571,11 +619,31 @@ participa —, então um cliente com várias contas conecta cada uma separadamen
 RS256 dizendo quem aprovou. Valide-o com qualquer biblioteca OpenID Connect contra o
 JWKS do emissor, e leia nome e e-mail em `config.UserInfo(ctx, accessToken)`.
 
-**Desconectando.** Quando um usuário desconecta no seu produto, revogue o token em
-vez de apenas apagá-lo. A revogação sempre responde sucesso:
+**Desconectando.** Quando um usuário desconecta no seu produto, revogue o refresh
+token em vez de apenas apagá-lo. Revogue o último salvo, não uma cópia guardada da
+troca do código: cada renovação aposenta o token anterior, e a revogação responde
+sucesso mesmo para um token aposentado, então revogar um valor velho deixa a conexão
+funcionando. Garanta que nenhuma renovação o troque enquanto você o lê: pare as
+requisições que usam o cliente da conexão e chame `Token` mais uma vez. Ele espera uma
+renovação ainda em andamento e só dá certo quando o refresh token em uso é conhecido e
+está salvo; se falhar, guarde tudo e informe que a desconexão não foi concluída. Com
+várias instâncias, segure a trava que suas renovações usam. Apague o token armazenado
+só depois que a revogação der certo; senão, guarde-o e tente de novo:
 
 ```go
-err := config.Revoke(ctx, refreshToken, oauth.HintRefreshToken)
+// Só uma concessão já encerrada (invalid_grant) segue sem um token confirmado.
+if _, err := source.Token(ctx); err != nil && oauth.ErrorCode(err) != oauth.ErrCodeInvalidGrant {
+	return err
+}
+
+saved, err := store.LoadTokens(userID) // o refresh token salvo por último
+if err != nil {
+	return err
+}
+if err := config.Revoke(ctx, saved.RefreshToken, oauth.HintRefreshToken); err != nil {
+	return err // não confirmada: guarde o token e tente de novo mais tarde
+}
+return store.DeleteTokens(userID)
 ```
 
 **Descoberta.** As URLs são publicadas pelo servidor de autorização, e
@@ -589,12 +657,14 @@ config.Endpoint = metadata.Endpoint()
 ```
 
 Antes de ir para produção: par PKCE e `state` novos a cada tentativa; `state` e `iss`
-conferidos; o segredo só no seu servidor; o refresh token rotacionado salvo antes do
-uso; `401` tratado com renovação e, se ela falhar, pedindo reconexão ao usuário; toda
-URI de redirecionamento registrada, `https://` e comparada caractere a caractere.
-Aplicações novas não são verificadas — a tela de aprovação avisa, e elas conectam no
-máximo 25 contas —, então peça verificação à Assinafy antes de ir além de um piloto.
-Os endpoints de autorização e token aceitam 50 requisições por minuto por IP.
+conferidos; o segredo só no seu servidor; o refresh token rotacionado salvo de forma
+durável antes do uso; `oauth.ErrRefreshIndeterminate` tratado sem nunca reenviar
+aquele refresh token; `401` tratado com renovação e, se ela falhar, pedindo reconexão
+ao usuário; toda URI de redirecionamento registrada, `https://` e comparada caractere
+a caractere. Aplicações novas não são verificadas — a tela de aprovação avisa, e elas
+conectam no máximo 25 contas —, então peça verificação à Assinafy antes de ir além de
+um piloto. Os endpoints de autorização e token aceitam 50 requisições por minuto por
+IP.
 
 ## Criando documentos a partir de modelos
 
