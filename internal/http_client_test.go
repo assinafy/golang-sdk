@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -778,5 +779,16 @@ func TestTokenSourceFailureStopsTheRequest(t *testing.T) {
 	}
 	if _, err := client.Download(ctx, "/c", nil); !errors.Is(err, tokenErr) {
 		t.Errorf("download err = %v", err)
+	}
+}
+
+func TestDefaultClientRequiresTLS12(t *testing.T) {
+	c := NewHTTPClient("https://api.example.test", "", "", time.Second)
+	tr, ok := c.httpc.Transport.(*http.Transport)
+	if !ok || tr.TLSClientConfig == nil || tr.TLSClientConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("default client must require TLS 1.2, got transport %#v", c.httpc.Transport)
+	}
+	if tr.Proxy == nil || !tr.ForceAttemptHTTP2 {
+		t.Fatal("default client must keep http.DefaultTransport's proxy and HTTP/2 settings")
 	}
 }

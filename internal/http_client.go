@@ -5,6 +5,7 @@ package internal
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,14 @@ import (
 )
 
 const userAgent = "assinafy-go-sdk"
+
+// Transport returns a clone of http.DefaultTransport that refuses TLS versions
+// below 1.2, so the SDK's own clients never negotiate TLS 1.0 or 1.1.
+func Transport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	return t
+}
 
 // HTTPClient is a thin JSON/multipart client around net/http.
 type HTTPClient struct {
@@ -45,7 +54,8 @@ func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPCl
 		baseURL: strings.TrimRight(baseURL, "/"),
 		headers: headers,
 		httpc: &http.Client{
-			Timeout: timeout,
+			Transport: Transport(),
+			Timeout:   timeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return errors.New("stopped after 10 consecutive requests")

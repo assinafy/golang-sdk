@@ -61,6 +61,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/assinafy/golang-sdk/internal"
 )
 
 // Default endpoints for the Assinafy production environment. The authorization
@@ -298,7 +300,7 @@ func (c *Config) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	return &http.Client{Transport: internal.Transport(), Timeout: 30 * time.Second}
 }
 
 // AuthorizationRequest carries the per-attempt values for one authorization URL.

@@ -44,6 +44,7 @@ OpenAPI publicada, com requisições e respostas tipadas e um contrato de erro �
 
 - Go 1.26 ou superior. O mínimo do módulo é a diretiva `go 1.26` no `go.mod`.
 - Nenhuma dependência de terceiros: o SDK usa apenas a biblioteca padrão.
+- TLS 1.2 ou superior. Os clientes HTTP padrão do SDK recusam TLS 1.0 e 1.1; um cliente que você fornecer mantém as próprias configurações de TLS.
 
 Go não designa releases como LTS — o time do Go dá suporte às duas versões maiores
 mais recentes. A CI compila e testa nas duas (Go 1.26.x e 1.27.x) e roda as

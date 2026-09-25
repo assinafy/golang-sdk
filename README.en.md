@@ -43,6 +43,7 @@ typed responses, and a single error contract.
 
 - Go 1.26 or later. The module's minimum is the `go 1.26` directive in `go.mod`.
 - No third-party dependencies; the SDK uses only the standard library.
+- TLS 1.2 or later. The SDK's default HTTP clients refuse TLS 1.0 and 1.1; a client you pass in keeps its own TLS settings.
 
 Go does not designate releases as LTS: the Go team supports the two most recent
 major releases. CI builds and tests on both (Go 1.26.x and 1.27.x) and runs the
