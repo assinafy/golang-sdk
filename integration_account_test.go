@@ -45,7 +45,7 @@ func TestIntegrationWebhookSubscriptionLifecycle(t *testing.T) {
 		Events:   []string{"document_ready"},
 		IsActive: false,
 		URL:      "https://example.com/assinafy-go-sdk-webhook",
-		Email:    "sdk-webhook@example.com",
+		Email:    "sdk-webhook@example.test",
 	})
 	if err != nil {
 		t.Fatalf("UpdateSubscription: %v", err)
@@ -58,8 +58,8 @@ func TestIntegrationWebhookSubscriptionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubscription after update: %v", err)
 	}
-	if got.Email == nil || *got.Email != "sdk-webhook@example.com" {
-		t.Errorf("subscription email = %v, want sdk-webhook@example.com", got.Email)
+	if got.Email == nil || *got.Email != "sdk-webhook@example.test" {
+		t.Errorf("subscription email = %v, want sdk-webhook@example.test", got.Email)
 	}
 
 	inactivated, err := c.Webhooks.Inactivate(ctx, "")

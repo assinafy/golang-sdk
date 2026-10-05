@@ -30,25 +30,34 @@
 //
 //	// Step 1: start the connection.
 //	pkce, err := oauth.NewPKCE()
+//	if err != nil { return err }
 //	state, err := oauth.NewState()
+//	if err != nil { return err }
 //	// Persist pkce.Verifier and state in the user's session, then:
 //	authURL, err := cfg.AuthorizationURL(oauth.AuthorizationRequest{
 //	    State:         state,
 //	    CodeChallenge: pkce.Challenge,
 //	})
+//	if err != nil { return err }
 //
 //	// Step 3: the browser comes back to the redirect URI.
 //	code, err := cfg.ParseCallback(r.URL, state)
+//	if err != nil { return err }
 //	token, err := cfg.Exchange(ctx, code, pkce.Verifier)
+//	if err != nil { return err }
+//	if err := saveTokenToDatabase(token); err != nil { return err }
 //
 //	// Step 4: call the API with an auto-refreshing token source.
 //	source := oauth.NewTokenSource(cfg, token, saveTokenToDatabase)
 //	client, err := assinafy.NewClient(assinafy.ClientOptions{TokenSource: source})
+//	if err != nil { return err }
 //
 // Token and revocation responses are plain OAuth JSON objects, not the
 // {status, message, data} envelope the rest of the API uses, so this package
 // speaks to those endpoints directly rather than through the SDK's HTTP client.
-// Failures are returned as *Error carrying the RFC 6749 error code.
+// OAuth response failures are returned as *Error carrying the RFC 6749 error
+// code. Transport failures wrap *errors.NetworkError; inspect refresh failures
+// for ErrRefreshIndeterminate before considering any further token request.
 package oauth
 
 import (
@@ -64,6 +73,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
 )
 
@@ -109,6 +119,10 @@ const (
 // ChallengeMethod is the only PKCE code-challenge method Assinafy accepts.
 const ChallengeMethod = "S256"
 
+// TokenTypeAccessToken is the RFC 8693 access-token type identifier used by
+// Config.ExchangeToken and Token.IssuedTokenType.
+const TokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token" // #nosec G101 -- Public RFC 8693 token-type identifier.
+
 // RFC 6749 and RFC 8707 error codes returned by the authorization server.
 // Compare them against Error.Code.
 const (
@@ -129,7 +143,7 @@ const (
 	// ErrCodeInvalidTarget means the resource indicator is not one this server
 	// issues tokens for, or disagrees with the authorized value.
 	ErrCodeInvalidTarget = "invalid_target"
-	// ErrCodeUnsupportedGrantType means a grant other than authorization_code or refresh_token.
+	// ErrCodeUnsupportedGrantType means the server does not support the requested grant.
 	ErrCodeUnsupportedGrantType = "unsupported_grant_type"
 	// ErrCodeUnsupportedResponseType means a response_type other than code.
 	ErrCodeUnsupportedResponseType = "unsupported_response_type"
@@ -263,7 +277,7 @@ func (e Endpoint) resolve() Endpoint {
 }
 
 // Config describes one registered Assinafy application. Create the application
-// in the Assinafy app under Settings, OAuth applications; it cannot be created
+// in the Assinafy app under Integrations, OAuth apps; it cannot be created
 // through the API. A Config is safe for concurrent use once built.
 type Config struct {
 	// ClientID is the public identifier issued when the application was registered.
@@ -339,6 +353,8 @@ type AuthorizationRequest struct {
 // If the client_id or redirect_uri is wrong the user is not sent back to you:
 // the authorization server shows an error on its own page, because redirecting
 // to an unverified address would be unsafe.
+//
+// GET /oauth/authorize (browser navigation on the authorization server).
 func (c *Config) AuthorizationURL(req AuthorizationRequest) (string, error) {
 	switch {
 	case c.ClientID == "":
@@ -425,6 +441,9 @@ type Token struct {
 	// AccessToken authenticates API calls as Authorization: Bearer. A token sent
 	// as X-Api-Key or in the query string is refused.
 	AccessToken string `json:"access_token"`
+	// IssuedTokenType identifies the token issued by an RFC 8693 exchange. It is
+	// absent from authorization-code and refresh responses.
+	IssuedTokenType string `json:"issued_token_type,omitempty"`
 	// TokenType is always "Bearer".
 	TokenType string `json:"token_type"`
 	// ExpiresIn is the access token's lifetime in seconds, normally 3600.
@@ -479,6 +498,8 @@ func (t *Token) HasScope(scope string) bool {
 //
 // The code expires 60 seconds after approval and can be used once; a stale,
 // replayed or mismatched code returns an *Error whose Code is ErrCodeInvalidGrant.
+//
+// POST /v1/oauth/token.
 func (c *Config) Exchange(ctx context.Context, code, codeVerifier string) (*Token, error) {
 	if code == "" {
 		return nil, fmt.Errorf("%w: authorization code is empty", ErrNoCode)
@@ -489,6 +510,31 @@ func (c *Config) Exchange(ctx context.Context, code, codeVerifier string) (*Toke
 	form.Set("code_verifier", codeVerifier)
 	if c.RedirectURI != "" {
 		form.Set("redirect_uri", c.RedirectURI)
+	}
+	return c.token(ctx, form)
+}
+
+// ExchangeToken trades a front-end resource's access token for an API access
+// token. Assinafy restricts this RFC 8693 grant to provisioned confidential
+// internal-service clients; ordinary marketplace applications receive
+// invalid_client and must use Exchange instead.
+//
+// subjectToken must be a live original token for a resource other than this
+// API. scopes optionally narrows its permissions. Resource must identify this
+// API, as the Config default does. The response includes IssuedTokenType and
+// never includes a refresh token; its lifetime is bounded by the subject token.
+//
+// POST /v1/oauth/token.
+func (c *Config) ExchangeToken(ctx context.Context, subjectToken string, scopes []string) (*Token, error) {
+	if subjectToken == "" {
+		return nil, ErrMissingToken
+	}
+	form := url.Values{}
+	form.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
+	form.Set("subject_token", subjectToken)
+	form.Set("subject_token_type", TokenTypeAccessToken)
+	if len(scopes) > 0 {
+		form.Set("scope", strings.Join(scopes, " "))
 	}
 	return c.token(ctx, form)
 }
@@ -511,6 +557,8 @@ func (c *Config) Exchange(ctx context.Context, code, codeVerifier string) (*Toke
 // saved since; otherwise ask the user to connect again. A 4xx answer, such as
 // ErrCodeInvalidGrant, is returned as an *Error, and a failure before anything
 // was sent, such as a DNS, connection or TLS handshake error, as it occurred.
+//
+// POST /v1/oauth/token.
 func (c *Config) Refresh(ctx context.Context, refreshToken string) (*Token, error) {
 	if refreshToken == "" {
 		return nil, ErrNoRefreshToken
@@ -530,10 +578,10 @@ func (c *Config) Refresh(ctx context.Context, refreshToken string) (*Token, erro
 		return nil, fmt.Errorf("%w: %w", ErrRefreshIndeterminate, err)
 	case err != nil:
 		return nil, err
-	case token.RefreshToken == "":
+	case strings.TrimSpace(token.RefreshToken) == "" || token.RefreshToken == refreshToken:
 		// Every refresh rotates the token, so the one sent may be retired and
 		// must not be carried forward.
-		return nil, fmt.Errorf("%w: the response carries no refresh token", ErrRefreshIndeterminate)
+		return nil, fmt.Errorf("%w: the response carries no new refresh token", ErrRefreshIndeterminate)
 	}
 	return token, nil
 }
@@ -555,6 +603,9 @@ func (c *Config) token(ctx context.Context, form url.Values) (*Token, error) {
 	if err := c.postForm(ctx, c.Endpoint.resolve().TokenURL, form, &token); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(token.AccessToken) == "" || !strings.EqualFold(token.TokenType, "Bearer") {
+		return nil, &unsettledError{errors.New("assinafy/oauth: token response requires an access_token and Bearer token_type")}
+	}
 	if token.ExpiresIn > 0 {
 		token.Expiry = issuedAt.Add(time.Duration(token.ExpiresIn) * time.Second)
 	}
@@ -569,6 +620,8 @@ func (c *Config) token(ctx context.Context, form url.Values) (*Token, error) {
 // outcome answers 200, including an unknown, malformed or already-revoked
 // token, so the endpoint can never be used to probe whether a token exists.
 // Only failed client authentication returns an *Error.
+//
+// POST /v1/oauth/revoke.
 func (c *Config) Revoke(ctx context.Context, token, hint string) error {
 	if token == "" {
 		return ErrMissingToken
@@ -672,7 +725,7 @@ func (c *Config) do(client *http.Client, req *http.Request, result any) error {
 	}))
 	resp, err := client.Do(req)
 	if err != nil {
-		err = fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), redactTransportError(err))
+		err = fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), &sdkerrors.NetworkError{Err: redactTransportError(err)})
 		if known && asked.Load() && !connected.Load() {
 			return err
 		}
@@ -682,7 +735,7 @@ func (c *Config) do(client *http.Client, req *http.Request, result any) error {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return &unsettledError{fmt.Errorf("assinafy/oauth: read response body: %w", err)}
+		return &unsettledError{&sdkerrors.NetworkError{Err: fmt.Errorf("assinafy/oauth: read response body: %w", err)}}
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {

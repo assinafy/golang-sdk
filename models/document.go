@@ -70,7 +70,7 @@ type Document struct {
 	Assignment *Assignment `json:"assignment,omitempty"`
 	// Pages contains rendered page metadata when included.
 	Pages []DocumentPage `json:"pages,omitempty"`
-	// Activities contains audit-trail entries when included.
+	// Activities contains activity entries when included.
 	Activities []DocumentActivity `json:"activities,omitempty"`
 	// CurrentSigner identifies the active signer in signer-facing responses.
 	CurrentSigner *Signer `json:"current_signer,omitempty"`
@@ -110,13 +110,13 @@ type DocumentPage struct {
 	DownloadURL string `json:"download_url"`
 }
 
-// DocumentActivity represents a single audit-trail entry on a document.
+// DocumentActivity represents a single activity entry on a document.
 type DocumentActivity struct {
-	// ID is the numeric audit event identifier.
+	// ID is the numeric activity event identifier.
 	ID int `json:"id"`
 	// Event is the machine-readable activity code.
 	Event string `json:"event"`
-	// Message is the human-readable audit description.
+	// Message is the human-readable activity description.
 	Message string `json:"message"`
 	// Payload contains event-specific JSON data and may be empty.
 	Payload Payload `json:"payload,omitempty"`
@@ -243,7 +243,8 @@ type DocumentStatusInfo struct {
 }
 
 // PublicDocumentInfo is the legacy reduced projection decoded by the deprecated
-// PublicDocumentResource.Get method. The current endpoint returns Document.
+// PublicDocumentResource.Get method. Public deployments can return this shape;
+// the published schema describes the richer Document shape.
 type PublicDocumentInfo struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`

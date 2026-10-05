@@ -33,10 +33,10 @@ func TestDocumentedOperationWireContracts(t *testing.T) {
 	tests := []wireCase{
 		{
 			name: "authentication login", method: http.MethodPost, path: "/login",
-			body:     models.LoginRequest{Email: "ada@example.com", Password: "old-secret"},
-			response: `{"status":200,"data":{"access_token":"login-token","user":{"id":"u1","name":"Ada","email":"ada@example.com"},"accounts":[]}}`,
+			body:     models.LoginRequest{Email: "ada@example.test", Password: "old-secret"},
+			response: `{"status":200,"data":{"access_token":"login-token","user":{"id":"u1","name":"Ada","email":"ada@example.test"},"accounts":[]}}`,
 			call: func(httpClient *internal.HTTPClient) error {
-				got, err := NewAuthenticationResource(httpClient).Login(ctx, &models.LoginRequest{Email: "ada@example.com", Password: "old-secret"})
+				got, err := NewAuthenticationResource(httpClient).Login(ctx, &models.LoginRequest{Email: "ada@example.test", Password: "old-secret"})
 				if err == nil && (got.AccessToken != "login-token" || got.User.ID != "u1") {
 					return fmt.Errorf("decoded login response = %+v", got)
 				}
@@ -46,7 +46,7 @@ func TestDocumentedOperationWireContracts(t *testing.T) {
 		{
 			name: "authentication social login", method: http.MethodPost, path: "/authentication/social-login",
 			body:     models.SocialLoginRequest{Provider: "google", Token: "identity-token", HasAcceptedTerms: true},
-			response: `{"status":200,"data":{"access_token":"social-token","user":{"id":"u2","name":"Grace","email":"grace@example.com"},"accounts":[]}}`,
+			response: `{"status":200,"data":{"access_token":"social-token","user":{"id":"u2","name":"Grace","email":"grace@example.test"},"accounts":[]}}`,
 			call: func(httpClient *internal.HTTPClient) error {
 				got, err := NewAuthenticationResource(httpClient).SocialLogin(ctx, &models.SocialLoginRequest{Provider: "google", Token: "identity-token", HasAcceptedTerms: true})
 				if err == nil && (got.AccessToken != "social-token" || got.User.ID != "u2") {
@@ -76,11 +76,11 @@ func TestDocumentedOperationWireContracts(t *testing.T) {
 		},
 		{
 			name: "authentication change password", method: http.MethodPut, path: "/authentication/change-password", authenticated: true,
-			body:     models.ChangePasswordRequest{Email: "ada@example.com", Password: "old-secret", NewPassword: "new-secret"},
-			response: `{"status":200,"data":{"email":"ada@example.com"}}`,
+			body:     models.ChangePasswordRequest{Email: "ada@example.test", Password: "old-secret", NewPassword: "new-secret"},
+			response: `{"status":200,"data":{"email":"ada@example.test"}}`,
 			call: func(httpClient *internal.HTTPClient) error {
-				got, err := NewAuthenticationResource(httpClient).ChangePassword(ctx, &models.ChangePasswordRequest{Email: "ada@example.com", Password: "old-secret", NewPassword: "new-secret"})
-				if err == nil && got.Email != "ada@example.com" {
+				got, err := NewAuthenticationResource(httpClient).ChangePassword(ctx, &models.ChangePasswordRequest{Email: "ada@example.test", Password: "old-secret", NewPassword: "new-secret"})
+				if err == nil && got.Email != "ada@example.test" {
 					return fmt.Errorf("decoded change-password response = %+v", got)
 				}
 				return err
@@ -88,11 +88,11 @@ func TestDocumentedOperationWireContracts(t *testing.T) {
 		},
 		{
 			name: "authentication request password reset", method: http.MethodPut, path: "/authentication/request-password-reset",
-			body:     models.RequestPasswordResetRequest{Email: "ada@example.com"},
-			response: `{"status":200,"data":{"email":"ada@example.com"}}`,
+			body:     models.RequestPasswordResetRequest{Email: "ada@example.test"},
+			response: `{"status":200,"data":{"email":"ada@example.test"}}`,
 			call: func(httpClient *internal.HTTPClient) error {
-				got, err := NewAuthenticationResource(httpClient).RequestPasswordReset(ctx, &models.RequestPasswordResetRequest{Email: "ada@example.com"})
-				if err == nil && got.Email != "ada@example.com" {
+				got, err := NewAuthenticationResource(httpClient).RequestPasswordReset(ctx, &models.RequestPasswordResetRequest{Email: "ada@example.test"})
+				if err == nil && got.Email != "ada@example.test" {
 					return fmt.Errorf("decoded request-reset response = %+v", got)
 				}
 				return err
@@ -100,11 +100,11 @@ func TestDocumentedOperationWireContracts(t *testing.T) {
 		},
 		{
 			name: "authentication reset password", method: http.MethodPut, path: "/authentication/reset-password",
-			body:     models.ResetPasswordRequest{Email: "ada@example.com", Token: &token, NewPassword: "new-secret"},
-			response: `{"status":200,"data":{"email":"ada@example.com"}}`,
+			body:     models.ResetPasswordRequest{Email: "ada@example.test", Token: &token, NewPassword: "new-secret"},
+			response: `{"status":200,"data":{"email":"ada@example.test"}}`,
 			call: func(httpClient *internal.HTTPClient) error {
-				got, err := NewAuthenticationResource(httpClient).ResetPassword(ctx, &models.ResetPasswordRequest{Email: "ada@example.com", Token: &token, NewPassword: "new-secret"})
-				if err == nil && got.Email != "ada@example.com" {
+				got, err := NewAuthenticationResource(httpClient).ResetPassword(ctx, &models.ResetPasswordRequest{Email: "ada@example.test", Token: &token, NewPassword: "new-secret"})
+				if err == nil && got.Email != "ada@example.test" {
 					return fmt.Errorf("decoded reset-password response = %+v", got)
 				}
 				return err
@@ -539,12 +539,12 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 		},
 		{
 			name: "public document legacy send token", method: http.MethodPut, path: "/public/documents/doc%2F1/send-token",
-			jsonBody: models.SendDocumentTokenRequest{Recipient: "ada@example.com", Channel: "email"},
-			response: `{"status":200,"data":{"document":{"id":"doc/1","name":"Contract"},"channel":"email","recipient":"ada@example.com"}}`,
+			jsonBody: models.SendDocumentTokenRequest{Recipient: "ada@example.test", Channel: "email"},
+			response: `{"status":200,"data":{"document":{"id":"doc/1","name":"Contract"},"channel":"email","recipient":"ada@example.test"}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
-				return NewPublicDocumentResource(h).SendToken(ctx, "doc/1", &models.SendDocumentTokenRequest{Recipient: "ada@example.com", Channel: "email"})
+				return NewPublicDocumentResource(h).SendToken(ctx, "doc/1", &models.SendDocumentTokenRequest{Recipient: "ada@example.test", Channel: "email"})
 			},
-			want: &models.SendDocumentTokenResult{Document: models.PublicDocumentInfo{ID: "doc/1", Name: "Contract"}, Channel: "email", Recipient: "ada@example.com"},
+			want: &models.SendDocumentTokenResult{Document: models.PublicDocumentInfo{ID: "doc/1", Name: "Contract"}, Channel: "email", Recipient: "ada@example.test"},
 		},
 		{
 			name: "signer list", method: http.MethodGet, path: "/accounts/acc%2F1/signers", authenticated: true,
@@ -630,10 +630,10 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 		{
 			name: "webhook update subscription", method: http.MethodPut,
 			path: "/accounts/acc%2F1/webhooks/subscriptions", authenticated: true,
-			jsonBody: models.UpdateWebhookSubscriptionRequest{Events: []string{"document_ready"}, IsActive: true, URL: "https://example.test/hook", Email: "ada@example.com"},
+			jsonBody: models.UpdateWebhookSubscriptionRequest{Events: []string{"document_ready"}, IsActive: true, URL: "https://example.test/hook", Email: "ada@example.test"},
 			response: `{"status":200,"data":{"events":["document_ready"],"is_active":true}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
-				return NewWebhookResource(h, "acc/1").UpdateSubscription(ctx, "", &models.UpdateWebhookSubscriptionRequest{Events: []string{"document_ready"}, IsActive: true, URL: "https://example.test/hook", Email: "ada@example.com"})
+				return NewWebhookResource(h, "acc/1").UpdateSubscription(ctx, "", &models.UpdateWebhookSubscriptionRequest{Events: []string{"document_ready"}, IsActive: true, URL: "https://example.test/hook", Email: "ada@example.test"})
 			},
 			want: &models.WebhookSubscription{Events: []string{"document_ready"}, IsActive: true},
 		},

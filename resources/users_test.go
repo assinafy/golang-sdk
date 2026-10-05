@@ -15,28 +15,28 @@ func TestUserGetSelf(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/users/self" {
 			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
 		}
-		writeJSONResponse(w, `{"status":200,"data":{"id":"u1","name":"Ada","email":"ada@example.com"}}`)
+		writeJSONResponse(w, `{"status":200,"data":{"id":"u1","name":"Ada","email":"ada@example.test"}}`)
 	})
 
 	user, err := NewUserResource(httpClient).GetSelf(context.Background())
 	if err != nil {
 		t.Fatalf("GetSelf: %v", err)
 	}
-	if user.ID != "u1" || user.Email != "ada@example.com" {
+	if user.ID != "u1" || user.Email != "ada@example.test" {
 		t.Errorf("user = %+v", user)
 	}
 }
 
 func TestUserGetSelfAcceptsSandboxSessionShape(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		writeJSONResponse(w, `{"status":200,"data":{"user":{"id":"u1","name":"Ada","email":"ada@example.com"},"accounts":[]}}`)
+		writeJSONResponse(w, `{"status":200,"data":{"user":{"id":"u1","name":"Ada","email":"ada@example.test"},"accounts":[]}}`)
 	})
 
 	user, err := NewUserResource(httpClient).GetSelf(context.Background())
 	if err != nil {
 		t.Fatalf("GetSelf: %v", err)
 	}
-	if user.ID != "u1" || user.Email != "ada@example.com" {
+	if user.ID != "u1" || user.Email != "ada@example.test" {
 		t.Errorf("user = %+v", user)
 	}
 }

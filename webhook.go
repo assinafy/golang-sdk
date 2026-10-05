@@ -26,7 +26,7 @@ func NewWebhookVerifier(secret string) *WebhookVerifier {
 	return &WebhookVerifier{secret: []byte(secret)}
 }
 
-// Verify performs a constant-time comparison of the hex-encoded HMAC-SHA256 of
+// Verify performs a constant-time check of the hex-encoded HMAC-SHA256 of
 // payload against the supplied signature. See the WebhookVerifier doc comment.
 //
 // Deprecated: use only when Assinafy has confirmed this exact scheme and header

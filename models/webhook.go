@@ -38,7 +38,7 @@ type WebhookDispatch struct {
 	ID string `json:"id"`
 	// Event is the machine-readable webhook event code.
 	Event string `json:"event"`
-	// ActivityID is the source audit-activity identifier.
+	// ActivityID is the source activity identifier.
 	ActivityID int `json:"activity_id"`
 	// Endpoint is the nullable URL to which delivery was attempted.
 	Endpoint *string `json:"endpoint,omitempty"`
@@ -97,7 +97,7 @@ type WebhookEventType struct {
 
 // WebhookPayload is the JSON envelope delivered to webhook subscribers.
 type WebhookPayload struct {
-	// ID is the source audit-activity identifier.
+	// ID is the source activity identifier.
 	ID int `json:"id"`
 	// Event is the machine-readable webhook event code.
 	Event string `json:"event"`

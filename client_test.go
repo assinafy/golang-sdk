@@ -84,15 +84,15 @@ func TestUploadAndRequestSignaturesValidatesSigners(t *testing.T) {
 		want      error
 	}{
 		{name: "none", want: ErrNoSigners},
-		{name: "blank name", signers: []models.UploadAndRequestSignaturesSigner{{Name: "  ", Email: "a@example.com"}}, want: ErrInvalidSigner},
+		{name: "blank name", signers: []models.UploadAndRequestSignaturesSigner{{Name: "  ", Email: "a@example.test"}}, want: ErrInvalidSigner},
 		{name: "no contact", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice"}}, want: ErrInvalidSigner},
 		{name: "invalid email", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", Email: "not an email"}}, want: ErrInvalidSigner},
 		{name: "invalid phone", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", WhatsAppPhoneNumber: "5511000000000"}}, want: ErrInvalidSigner},
-		{name: "invalid expiration", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", Email: "a@example.com"}}, expiresAt: &invalidExpiration, want: sdkerrors.ErrInvalidInput},
+		{name: "invalid expiration", signers: []models.UploadAndRequestSignaturesSigner{{Name: "Alice", Email: "a@example.test"}}, expiresAt: &invalidExpiration, want: sdkerrors.ErrInvalidInput},
 		{
 			name: "validates all before upload",
 			signers: []models.UploadAndRequestSignaturesSigner{
-				{Name: "Alice", Email: "a@example.com"},
+				{Name: "Alice", Email: "a@example.test"},
 				{Name: "Bob", Email: " ", WhatsAppPhoneNumber: "\t"},
 			},
 			want: ErrInvalidSigner,
@@ -147,7 +147,7 @@ func TestUploadAndRequestSignaturesSuccess(t *testing.T) {
 				t.Errorf("decode signer: %v", err)
 			}
 			if signerCalls == 1 {
-				if body.FullName != "Alice" || body.Email == nil || *body.Email != "alice@example.com" || body.WhatsAppPhoneNumber == nil || *body.WhatsAppPhoneNumber != "+5511000000001" {
+				if body.FullName != "Alice" || body.Email == nil || *body.Email != "alice@example.test" || body.WhatsAppPhoneNumber == nil || *body.WhatsAppPhoneNumber != "+5511000000001" {
 					t.Errorf("first signer body = %+v", body)
 				}
 				_, _ = io.WriteString(w, `{"status":200,"data":{"id":"signer-1","full_name":"Alice","has_accepted_terms":false}}`)
@@ -193,7 +193,7 @@ func TestUploadAndRequestSignaturesSuccess(t *testing.T) {
 	}
 	expiresAt := " 2026-12-31T23:59:59Z\t"
 	result, err := c.UploadAndRequestSignatures(context.Background(), []byte("%PDF-1.1"), "doc.pdf", []models.UploadAndRequestSignaturesSigner{
-		{Name: " Alice ", Email: " alice@example.com ", WhatsAppPhoneNumber: " +5511000000001 "},
+		{Name: " Alice ", Email: " alice@example.test ", WhatsAppPhoneNumber: " +5511000000001 "},
 		{Name: "Bob", WhatsAppPhoneNumber: "+5511000000002"},
 	}, "Please sign", &expiresAt, "")
 	if err != nil {
@@ -231,8 +231,8 @@ func TestUploadAndRequestSignaturesReturnsPartialResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := c.UploadAndRequestSignatures(context.Background(), []byte("%PDF-1.1"), "doc.pdf", []models.UploadAndRequestSignaturesSigner{
-		{Name: "Alice", Email: "alice@example.com"},
-		{Name: "Bob", Email: "bob@example.com"},
+		{Name: "Alice", Email: "alice@example.test"},
+		{Name: "Bob", Email: "bob@example.test"},
 	}, "", nil, "")
 	if err == nil {
 		t.Fatal("expected signer creation error")

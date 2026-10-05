@@ -68,7 +68,7 @@ func randomURLSafe(n int) (string, error) {
 }
 
 // constantTimeEqual compares two values without leaking their contents through
-// timing. Lengths are compared first because ConstantTimeCompare returns 0 for
+// timing. Lengths are checked first because ConstantTimeCompare returns 0 for
 // mismatched lengths regardless of content.
 func constantTimeEqual(got, want string) bool {
 	if len(got) != len(want) {

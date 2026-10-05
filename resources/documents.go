@@ -152,7 +152,7 @@ func (r *DocumentResource) Rename(ctx context.Context, documentID, name string) 
 	return &out, nil
 }
 
-// Activities returns the authenticated document's DocumentActivity audit-trail payloads.
+// Activities returns the authenticated document's DocumentActivity activity payloads.
 // GET /documents/{document_id}/activities.
 func (r *DocumentResource) Activities(ctx context.Context, documentID string) ([]models.DocumentActivity, error) {
 	var out []models.DocumentActivity

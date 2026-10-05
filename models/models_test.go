@@ -358,11 +358,11 @@ func TestRequestModelEncoding(t *testing.T) {
 	})
 
 	t.Run("public token email", func(t *testing.T) {
-		got, err := json.Marshal(SendDocumentTokenRequest{Email: "person@example.com"})
+		got, err := json.Marshal(SendDocumentTokenRequest{Email: "person@example.test"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != `{"email":"person@example.com"}` {
+		if string(got) != `{"email":"person@example.test"}` {
 			t.Fatalf("body = %s", got)
 		}
 	})

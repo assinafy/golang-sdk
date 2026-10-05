@@ -27,8 +27,8 @@ func NewPublicDocumentResource(httpClient *internal.HTTPClient) *PublicDocumentR
 // client credential. An unknown or non-public document produces an API error.
 // GET /public/documents/{document_id}.
 //
-// Deprecated: use GetDocument, which decodes the full response documented by
-// the current API contract.
+// Deprecated: use GetDocument when the deployment returns the full Document
+// shape. Get retains page_count and created_by from the reduced public shape.
 func (r *PublicDocumentResource) Get(ctx context.Context, documentID string) (*models.PublicDocumentInfo, error) {
 	var out models.PublicDocumentInfo
 	if err := r.get(ctx, documentID, &out); err != nil {
@@ -39,6 +39,8 @@ func (r *PublicDocumentResource) Get(ctx context.Context, documentID string) (*m
 
 // GetDocument returns the documented public Document payload without requiring a
 // client credential. An unknown or non-public document produces an API error.
+// Deployments returning the reduced public shape populate only matching fields;
+// use Get to retain that shape's page_count and created_by.
 // GET /public/documents/{document_id}.
 func (r *PublicDocumentResource) GetDocument(ctx context.Context, documentID string) (*models.Document, error) {
 	var out models.Document

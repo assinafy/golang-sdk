@@ -35,14 +35,14 @@ func TestPublicDocumentContractMethods(t *testing.T) {
 			if r.Method != http.MethodPut || r.URL.Path != "/public/documents/d1/send-token" {
 				t.Errorf("request = %s %s", r.Method, r.URL.Path)
 			}
-			want := map[string]any{"email": "person@example.com"}
+			want := map[string]any{"email": "person@example.test"}
 			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
 				t.Errorf("body = %#v, want %#v", got, want)
 			}
 			writeJSONResponse(w, `{"status":200,"message":""}`)
 		})
 
-		if err := NewPublicDocumentResource(httpClient).SendTokenByEmail(context.Background(), "d1", "person@example.com"); err != nil {
+		if err := NewPublicDocumentResource(httpClient).SendTokenByEmail(context.Background(), "d1", "person@example.test"); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -55,14 +55,14 @@ func TestPublicDocumentContractMethods(t *testing.T) {
 				writeJSONResponse(w, `{"status":400,"message":"O atributo channel é obrigatório."}`)
 				return
 			}
-			want := map[string]any{"recipient": "person@example.com", "channel": "email"}
+			want := map[string]any{"recipient": "person@example.test", "channel": "email"}
 			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
 				t.Errorf("fallback body = %#v, want %#v", got, want)
 			}
 			writeJSONResponse(w, `{"status":200,"message":""}`)
 		})
 
-		if err := NewPublicDocumentResource(httpClient).SendTokenByEmail(context.Background(), "d1", "person@example.com"); err != nil {
+		if err := NewPublicDocumentResource(httpClient).SendTokenByEmail(context.Background(), "d1", "person@example.test"); err != nil {
 			t.Fatal(err)
 		}
 		if calls != 2 {

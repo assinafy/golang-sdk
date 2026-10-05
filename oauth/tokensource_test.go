@@ -84,6 +84,8 @@ func TestRefreshWithoutANewRefreshTokenIsRejected(t *testing.T) {
 		{"missing", `{"access_token":"at-2","token_type":"Bearer","expires_in":3600}`},
 		{"null", `{"access_token":"at-2","token_type":"Bearer","expires_in":3600,"refresh_token":null}`},
 		{"empty", `{"access_token":"at-2","token_type":"Bearer","expires_in":3600,"refresh_token":""}`},
+		{"whitespace", `{"access_token":"at-2","token_type":"Bearer","expires_in":3600,"refresh_token":" "}`},
+		{"unchanged", `{"access_token":"at-2","token_type":"Bearer","expires_in":3600,"refresh_token":"rt-1"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var requests atomic.Int32

@@ -92,6 +92,9 @@ func (m *ProtectedResourceMetadata) Issuer() string {
 //
 // The metadata and key documents are served only by the authorization server,
 // never by the API host.
+//
+// GET /.well-known/oauth-authorization-server.
+// GET /.well-known/openid-configuration (fallback).
 func DiscoverAuthorizationServer(ctx context.Context, issuer string, httpClient *http.Client) (*AuthorizationServerMetadata, error) {
 	if issuer == "" {
 		issuer = DefaultIssuer

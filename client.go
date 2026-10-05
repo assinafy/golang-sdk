@@ -190,6 +190,10 @@ func NewClient(opts ClientOptions) (*Client, error) {
 // ErrInvalidSigner before making a request. After upload, an error is accompanied
 // by a partial result containing the document and any created signer IDs so the
 // caller can clean them up.
+//
+// POST /accounts/{account_id}/documents.
+// POST /accounts/{account_id}/signers (once per signer).
+// POST /documents/{document_id}/assignments.
 func (c *Client) UploadAndRequestSignatures(
 	ctx context.Context,
 	fileContent []byte,

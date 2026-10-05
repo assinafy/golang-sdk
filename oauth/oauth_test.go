@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	sdkerrors "github.com/assinafy/golang-sdk/errors"
 )
 
 // newTestConfig points a Config at srv while keeping the production behaviour
@@ -347,6 +349,69 @@ func TestRefreshSendsOnlyTheRefreshGrant(t *testing.T) {
 	}
 }
 
+func TestTokenResponsesRequireBearerCredentials(t *testing.T) {
+	for _, body := range []string{
+		`{}`,
+		`{"access_token":null,"token_type":"Bearer","refresh_token":"new-rt"}`,
+		`{"access_token":" ","token_type":"Bearer","refresh_token":"new-rt"}`,
+		`{"access_token":"at","refresh_token":"new-rt"}`,
+		`{"access_token":"at","token_type":"MAC","refresh_token":"new-rt"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, body)
+			})
+			cfg := newTestConfig(srv)
+			if token, err := cfg.Exchange(context.Background(), "code", "verifier"); err == nil || token != nil {
+				t.Fatalf("Exchange = %v, %v; want no token and an error", token, err)
+			}
+			if token, err := cfg.Refresh(context.Background(), "old-rt"); token != nil || !errors.Is(err, ErrRefreshIndeterminate) {
+				t.Fatalf("Refresh = %v, %v; want an indeterminate outcome", token, err)
+			}
+		})
+	}
+}
+
+func TestExchangeToken(t *testing.T) {
+	var requests atomic.Int32
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/oauth/token" || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			t.Errorf("request = %s %s, content type = %q", r.Method, r.URL.Path, r.Header.Get("Content-Type"))
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		want := url.Values{
+			"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
+			"subject_token":      {"subject"},
+			"subject_token_type": {TokenTypeAccessToken},
+			"client_id":          {"client-1"},
+			"client_secret":      {"secret-1"},
+			"resource":           {DefaultResource},
+		}
+		if requests.Add(1) == 2 {
+			want.Set("scope", ScopeDocumentsRead)
+		}
+		if !reflect.DeepEqual(r.PostForm, want) {
+			t.Errorf("form = %v, want %v", r.PostForm, want)
+		}
+		_, _ = io.WriteString(w, `{"access_token":"api-token","token_type":"Bearer","expires_in":300,"issued_token_type":"urn:ietf:params:oauth:token-type:access_token","scope":"documents:read"}`)
+	})
+	cfg := newTestConfig(srv)
+	if _, err := cfg.ExchangeToken(context.Background(), "", nil); !errors.Is(err, ErrMissingToken) {
+		t.Fatalf("empty subject error = %v", err)
+	}
+	for _, scopes := range [][]string{nil, {ScopeDocumentsRead}} {
+		token, err := cfg.ExchangeToken(context.Background(), "subject", scopes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token.AccessToken != "api-token" || token.IssuedTokenType != TokenTypeAccessToken || token.RefreshToken != "" || !token.Valid() {
+			t.Fatalf("token = %+v", token)
+		}
+	}
+}
+
 func TestTokenRequestsDoNotFollowRedirects(t *testing.T) {
 	var requests atomic.Int32
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -658,9 +723,25 @@ func TestTransportErrorsHideTheQueryString(t *testing.T) {
 	if strings.Contains(err.Error(), "secret") {
 		t.Fatalf("error leaked the query string: %v", err)
 	}
+	var networkErr *sdkerrors.NetworkError
+	if !errors.As(err, &networkErr) {
+		t.Fatalf("transport error type = %T, want NetworkError", err)
+	}
 
 	if got := redactQuery(nil); got != "" {
 		t.Errorf("redactQuery(nil) = %q", got)
+	}
+}
+
+func TestOAuthResponseReadFailure(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		_, _ = io.WriteString(w, "{}")
+	})
+	_, err := newTestConfig(srv).Refresh(context.Background(), "rt")
+	var networkErr *sdkerrors.NetworkError
+	if !errors.As(err, &networkErr) || !errors.Is(err, io.ErrUnexpectedEOF) || !errors.Is(err, ErrRefreshIndeterminate) {
+		t.Fatalf("response read error = %v", err)
 	}
 }
 

@@ -26,6 +26,7 @@ typed responses, and a single error contract.
    - [7. Drive a signer session](#7-drive-a-signer-session)
    - [8. Download the certified document](#8-download-the-certified-document)
    - [The whole flow in one call](#the-whole-flow-in-one-call)
+   - [Complete program: PDF to signed document](#complete-program-pdf-to-signed-document)
 7. [Verifying and notifying signers](#verifying-and-notifying-signers)
    - [Signing with an ICP-Brasil certificate](#signing-with-an-icp-brasil-certificate)
 8. [Connecting other people's workspaces with OAuth](#connecting-other-peoples-workspaces-with-oauth)
@@ -119,7 +120,7 @@ rejects the call locally rather than sending a malformed path.
 
 **Resources.** The client groups the API by area:
 
-```go
+```text
 client.Accounts        client.Documents   client.Templates  client.Tags
 client.Signers         client.Assignments client.Fields     client.Webhooks
 client.SignerDocuments client.Users       client.Authentication
@@ -237,6 +238,9 @@ estimate, err := client.Assignments.EstimateCostWithRequest(ctx, document.ID,
 	})
 if err != nil {
 	return err
+}
+if err != nil {
+	log.Fatal(err)
 }
 if !estimate.HasSufficientResources {
 	return fmt.Errorf("cannot fund assignment: %v", estimate.BlockingReason)
@@ -374,6 +378,123 @@ request. It is **not** transactional: when a later call fails, the returned
 partial result still carries the uploaded `Document` and the created `SignerIDs`
 so the caller can clean up.
 
+### Complete program: PDF to signed document
+
+Save this program as `main.go`, set `ASSINAFY_API_KEY`, `ASSINAFY_ACCOUNT_ID`,
+`ASSINAFY_PDF_PATH`, `ASSINAFY_SIGNER_NAME`, and `ASSINAFY_SIGNER_EMAIL` in the
+environment, then run `go run main.go`. It sends a real sandbox email invitation
+and waits up to 30 minutes for the signer.
+
+The virtual flow does not require page metadata. The signer opens the invitation
+and completes verification and signing in the Assinafy app.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	assinafy "github.com/assinafy/golang-sdk"
+	"github.com/assinafy/golang-sdk/models"
+)
+
+func main() {
+	for _, key := range []string{"ASSINAFY_API_KEY", "ASSINAFY_ACCOUNT_ID", "ASSINAFY_PDF_PATH", "ASSINAFY_SIGNER_NAME", "ASSINAFY_SIGNER_EMAIL"} {
+		if os.Getenv(key) == "" {
+			log.Fatalf("set %s before running this program", key)
+		}
+	}
+	client, err := assinafy.NewClient(assinafy.ClientOptions{
+		APIKey:    os.Getenv("ASSINAFY_API_KEY"),
+		AccountID: os.Getenv("ASSINAFY_ACCOUNT_ID"),
+		BaseURL:   assinafy.SandboxBaseURL,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	pdf, err := os.ReadFile(os.Getenv("ASSINAFY_PDF_PATH"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	document, err := client.Documents.Upload(ctx, "", pdf, "agreement.pdf", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("document: %s\n", document.ID)
+	email := os.Getenv("ASSINAFY_SIGNER_EMAIL")
+	signer, err := client.Signers.Create(ctx, "", &models.CreateSignerRequest{
+		FullName: os.Getenv("ASSINAFY_SIGNER_NAME"),
+		Email:    &email,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("signer: %s\n", signer.ID)
+	estimate, err := client.Assignments.EstimateCostWithRequest(ctx, document.ID,
+		&models.EstimateAssignmentCostRequest{
+			Method:  models.MethodVirtual,
+			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: models.VerificationMethodEmail}},
+		})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !estimate.HasSufficientResources {
+		log.Fatalf("cannot send: %v", estimate.Message)
+	}
+	assignment, err := client.Assignments.Create(ctx, document.ID, &models.CreateAssignmentRequest{
+		Method: models.MethodVirtual,
+		Signers: []models.SignerReference{{
+			ID:                  signer.ID,
+			VerificationMethod:  models.VerificationMethodEmail,
+			NotificationMethods: []string{models.NotificationMethodEmail},
+		}},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("assignment: %s; waiting for the signer\n", assignment.ID)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		document, err = client.Documents.Get(ctx, document.ID)
+		if err != nil {
+			log.Fatal(err)
+		}
+		switch document.Status {
+		case models.StatusCertificated:
+			certified, err := client.Documents.Download(ctx, document.ID, "certificated")
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := os.WriteFile("agreement-signed.pdf", certified, 0o600); err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println("saved agreement-signed.pdf")
+			return
+		case models.StatusExpired, models.StatusRejectedBySigner, models.StatusRejectedByUser, models.StatusFailed:
+			log.Fatalf("signing ended with status %q", document.Status)
+		}
+		select {
+		case <-ctx.Done():
+			log.Fatal(ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+```
+
+Keep the printed IDs. A timeout or a failure after upload leaves the created
+resources in the account. Resume tracking with `Documents.Get` and the saved ID.
+For an existing signer, use its ID and omit `Signers.Create`; signer emails are
+unique within a workspace. In production applications, a `document_ready` webhook
+replaces polling.
+
 ## Verifying and notifying signers
 
 Each signer on an assignment has a **verification method** — how they prove who
@@ -457,8 +578,7 @@ picked — you never handle their password or API key, and they can disconnect y
 at any time. Automating your own workspace needs none of this; keep using an API
 key.
 
-Register the application in the Assinafy app under **Settings → OAuth
-applications**. You need to be an owner of the workspace that will own it, and
+Register the application in the Assinafy app under **Integrations → OAuth apps**. You need to be an owner of the workspace that will own it, and
 its plan must include OAuth applications. Registration yields a `client_id`, plus
 a `client_secret` for a **confidential** application whose code runs on a server
 you control. A **public** application — one running on the user's device, which
@@ -477,6 +597,7 @@ config := &oauth.Config{
 	ClientSecret: os.Getenv("ASSINAFY_CLIENT_SECRET"), // omit for a public app
 	RedirectURI:  "https://myapp.example/oauth/callback",
 	Scopes: []string{
+		oauth.ScopeAccountRead,
 		oauth.ScopeDocumentsRead,
 		oauth.ScopeDocumentsWrite,
 		oauth.ScopeOfflineAccess,
@@ -484,15 +605,28 @@ config := &oauth.Config{
 }
 
 pkce, err := oauth.NewPKCE()
+if err != nil {
+	return err
+}
 state, err := oauth.NewState()
+if err != nil {
+	return err
+}
 // Persist pkce.Verifier and state against this user's session.
 
 authorizeURL, err := config.AuthorizationURL(oauth.AuthorizationRequest{
 	State:         state,
 	CodeChallenge: pkce.Challenge,
 })
+if err != nil {
+	return err
+}
 http.Redirect(w, r, authorizeURL, http.StatusFound)
 ```
+
+Keep the state and verifier in a short-lived session bound to the user who
+started the connection. Consume each attempt once in the callback, including
+denials and failures.
 
 **Step 2 — handle the return.** `ParseCallback` checks the `state` in constant
 time and the `iss` parameter before returning anything, and reports a declined
@@ -506,6 +640,12 @@ if err != nil {
 	return err
 }
 token, err := config.Exchange(ctx, code, sessionVerifier)
+if err != nil {
+	return err
+}
+if err := store.SaveTokens(userID, token); err != nil {
+	return err
+}
 ```
 
 **Step 3 — find the workspace and call the API.** A token belongs to the one
@@ -518,11 +658,23 @@ source := oauth.NewTokenSource(config, token, func(renewed *oauth.Token) error {
 })
 
 client, err := assinafy.NewClient(assinafy.ClientOptions{TokenSource: source})
+if err != nil {
+	return err
+}
 workspaces, err := client.Accounts.List(ctx)
+if err != nil {
+	return err
+}
+if len(workspaces) != 1 {
+	return fmt.Errorf("OAuth connection must identify exactly one workspace")
+}
 client, err = assinafy.NewClient(assinafy.ClientOptions{
 	TokenSource: source,
 	AccountID:   workspaces[0].ID,
 })
+if err != nil {
+	return err
+}
 ```
 
 The token source renews an expiring access token from the refresh token before
@@ -619,6 +771,12 @@ own role, or an area OAuth cannot reach. A token works only for the workspace it
 was issued for — calling any other returns `403`, even one the same user belongs
 to — so a customer with several workspaces connects each one separately.
 
+**Resource token exchange.** `Config.ExchangeToken` implements the RFC 8693 grant
+restricted to internal-service clients. Ordinary marketplace applications use
+PKCE and `Config.Exchange`; the server rejects their exchange requests with
+`invalid_client`. An exchanged token includes `issued_token_type`, has no refresh
+token, and cannot exceed the subject token’s scopes or remaining lifetime.
+
 **Signing users in.** With `ScopeOpenID` the token carries an `id_token`, an
 RS256 JWT saying who approved. Validate it with any OpenID Connect library
 against the issuer's JWKS, then read the user's name and email from
@@ -658,7 +816,13 @@ To read them at runtime:
 
 ```go
 resource, err := oauth.DiscoverProtectedResource(ctx, "", nil)          // this API
+if err != nil {
+	return err
+}
 metadata, err := oauth.DiscoverAuthorizationServer(ctx, resource.Issuer(), nil)
+if err != nil {
+	return err
+}
 config.Endpoint = metadata.Endpoint()
 ```
 
@@ -730,8 +894,8 @@ events, err := client.Webhooks.ListEventTypes(ctx)
 _, err = client.Webhooks.UpdateSubscription(ctx, "", &models.UpdateWebhookSubscriptionRequest{
 	Events:   []string{"document_ready", "signer_signed_document"},
 	IsActive: true,
-	URL:      "https://example.com/hooks/assinafy",
-	Email:    "ops@example.com",
+	URL:      "https://example.test/hooks/assinafy",
+	Email:    "ops@example.test",
 })
 ```
 
@@ -884,10 +1048,12 @@ Every other route reachable in production has a typed method here.
 
 ```bash
 go build ./...
-go test -race ./...
+go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
 go vet ./...
 gofmt -l .
-golangci-lint run
+go tool cover -func=coverage.out
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --timeout=5m
+go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -test ./...
 ```
 
 GitHub Actions runs the same checks — plus `govulncheck` and a coverage floor —
