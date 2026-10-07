@@ -73,6 +73,10 @@ func TestRequiredIDsAreValidatedBeforeSending(t *testing.T) {
 			_, err := NewDocumentResource(httpClient, "account").Get(context.Background(), " ")
 			return err
 		}},
+		{"webhook endpoint", func() error {
+			_, err := NewWebhookResource(httpClient, "account").GetEndpoint(context.Background(), "", "")
+			return err
+		}},
 		{"nested id", func() error {
 			_, err := NewSignerResource(httpClient, "account").Get(context.Background(), "", "")
 			return err

@@ -6,7 +6,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk)
 
 Cliente Go para a [API Assinafy v1](https://api.assinafy.com.br/v1/docs) — plataforma
-brasileira de assinatura eletrônica de documentos. Cobre as 93 operações da descrição
+brasileira de assinatura eletrônica de documentos. Cobre as 106 operações da descrição
 OpenAPI publicada, com requisições e respostas tipadas e um contrato de erro único.
 
 ## Conteúdo
@@ -746,7 +746,7 @@ antes de decidir, e ele aprova tudo ou nada.
 | `oauth.ScopeTemplatesRead` | Ler modelos |
 | `oauth.ScopeTemplatesWrite` | Criar e alterar modelos |
 | `oauth.ScopeAccountRead` | Ler o perfil, o tema e o logotipo da conta |
-| `oauth.ScopeWebhooksWrite` | Configurar e desativar a assinatura de webhooks da conta |
+| `oauth.ScopeWebhooksWrite` | Criar, alterar e excluir os endpoints de webhook da conta (não os seus segredos de assinatura) |
 | `oauth.ScopeOpenID` | Receber um `id_token` identificando o usuário, e chamar `UserInfo` |
 | `oauth.ScopeProfile` | Ler o nome do usuário |
 | `oauth.ScopeEmail` | Ler o e-mail do usuário e se ele está verificado |
@@ -881,40 +881,76 @@ valores contra uma definição antes do envio.
 
 ## Recebendo webhooks
 
-Aponte a Assinafy para um endpoint, escolha os eventos e trate as entregas.
+Uma conta entrega eventos a um endpoint de webhook, ou a até três nos planos pagos.
+Cada endpoint tem URL, lista de eventos e contagem de falhas próprias, e pode assinar
+as suas entregas.
 
 ```go
 events, err := client.Webhooks.ListEventTypes(ctx)
-_, err = client.Webhooks.UpdateSubscription(ctx, "", &models.UpdateWebhookSubscriptionRequest{
-	Events:   []string{"document_ready", "signer_signed_document"},
-	IsActive: true,
-	URL:      "https://example.test/hooks/assinafy",
-	Email:    "ops@example.test",
+endpoint, err := client.Webhooks.CreateEndpoint(ctx, "", &models.CreateWebhookEndpointRequest{
+	Name:           "ERP",
+	URL:            "https://example.test/hooks/assinafy",
+	Email:          "ops@example.test",
+	Events:         []string{"document_ready", "signer_signed_document"},
+	SigningEnabled: true,
+})
+secret, err := client.Webhooks.GetEndpointSecret(ctx, "", endpoint.ID) // "whsec_…"
+```
+
+Criar um endpoint além do limite do plano gera `APIError` `403`, e uma URL que outro
+endpoint da conta já usa gera `400`. `ListEndpoints`, `GetEndpoint`, `UpdateEndpoint`
+(só os campos não nulos mudam) e `DeleteEndpoint` os administram.
+`RotateEndpointSecret` troca o segredo, e o anterior deixa de valer na hora; publique
+o novo segredo antes de girar outra vez. Aplicativos OAuth não leem nem giram
+segredos. Guarde o segredo como qualquer outra credencial.
+
+`GetSubscription`, `UpdateSubscription` e `Inactivate` agem sobre o endpoint mais
+antigo e atendem contas com um só; `UpdateSubscription` o cria quando não existe e
+sempre envia os seus quatro campos.
+
+Verifique cada entrega contra o corpo bruto antes de confiar nela:
+
+```go
+verifier := assinafy.NewWebhookVerifier(os.Getenv("ASSINAFY_WEBHOOK_SECRET"))
+
+http.HandleFunc("/hooks/assinafy", func(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if err := verifier.VerifyRequest(r.Header, body); err != nil {
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
+	}
+	event, err := verifier.ExtractEvent(body)
+	if err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	// Deduplique por r.Header.Get("webhook-id") e enfileire o evento.
+	_ = event
+	w.WriteHeader(http.StatusNoContent)
 })
 ```
 
-Os quatro campos são obrigatórios na API e sempre são enviados.
-`client.Webhooks.Inactivate` é a forma documentada de parar as entregas sem descartar
-a configuração.
+`VerifyRequest` segue o [Standard Webhooks](https://www.standardwebhooks.com):
+recalcula `base64(HMAC-SHA256(chave, "{webhook-id}.{webhook-timestamp}.{corpo}"))`,
+compara em tempo constante com cada entrada `v1,` de `webhook-signature` e rejeita um
+`webhook-timestamp` a mais de `assinafy.WebhookTolerance` (cinco minutos) do seu
+relógio. As falhas envolvem `assinafy.ErrInvalidWebhookSignature`. Leia o corpo antes
+de interpretá-lo; JSON recodificado não confere.
 
-Decodifique um corpo entregue com o verificador:
-
-```go
-verifier := assinafy.NewWebhookVerifier(sharedSecret)
-event, err := verifier.ExtractEvent(requestBody)
-```
-
+Responda `2xx` rápido e processe depois. A Assinafy faz duas tentativas com três
+segundos de intervalo e pausa um endpoint após dez eventos seguidos com falha.
 `client.Webhooks.ListDispatches` devolve o histórico de entregas — código de status,
-corpo da resposta e erro por tentativa — filtrável por evento, resultado e intervalo
-Unix, e `client.Webhooks.RetryDispatch` força nova tentativa.
+corpo da resposta e erro por tentativa — filtrável por endpoint, evento, resultado e
+intervalo Unix, e `client.Webhooks.RetryDispatch` reenvia uma entrada ao seu endpoint.
 
-Deduplique por `WebhookPayload.ID`, aceite campos e nomes de evento desconhecidos, e
-não dependa da ordem entre eventos. O catálogo completo, com sujeito, objeto e chaves
-de payload de cada evento, está em [docs/API.md](docs/API.md#webhook-payloads).
-
-`WebhookVerifier.Verify` implementa `hex(HMAC-SHA256(secret, body))`. O contrato
-publicado não documenta nenhum cabeçalho de assinatura, então use `Verify` apenas
-depois que a Assinafy confirmar esse esquema e esse cabeçalho para a sua integração.
+`webhook-id` é o mesmo em todas as tentativas de um evento para um endpoint; use-o
+para deduplicar. Aceite campos e nomes de evento desconhecidos, e não dependa da
+ordem entre eventos. O catálogo completo, com sujeito, objeto e chaves de payload de
+cada evento, está em [docs/API.md](docs/API.md#webhook-payloads).
 
 ## Contas, usuários e estatísticas
 
@@ -928,6 +964,14 @@ impedimentos em `APIError.Restrictions`, a menos que se passe `force`.
 notificações por e-mail do proprietário. Uma atualização mescla as chaves enviadas e
 devolve o mapa completo.
 
+A autenticação em dois fatores usa um aplicativo autenticador. `StartTOTPEnrollment`
+devolve o segredo e uma URI `otpauth://` para exibir como QR code, uma única vez.
+`ConfirmTOTPEnrollment` ativa o método com um código desse aparelho e devolve os
+códigos de recuperação, também uma única vez. `ListMFAMethods`,
+`RegenerateRecoveryCodes` e `RemoveMFAMethod` o administram depois; os dois últimos
+exigem a senha, um código atual ou um código de recuperação em
+`models.MFAReauthRequest`.
+
 `client.Accounts.Stats` e `client.Users.Stats` devolvem o funil de documentos —
 enviados, solicitados, visualizados, concluídos, certificados — mensalmente (últimos
 doze meses) ou diariamente para um mês `YYYY-MM`. As duas séries vêm preenchidas com
@@ -938,6 +982,19 @@ fluxos de senha e do ciclo `CreateAPIKey`/`GetAPIKey`/`DeleteAPIKey`. Criar uma 
 substitui a anterior e é a única vez em que a chave completa é devolvida.
 `SocialLoginURL` monta a URL de navegador que inicia o login social de um provedor e
 não faz requisição alguma.
+
+Quando o usuário tem dois fatores, `Login` devolve `MFAToken` e nenhum token de
+acesso. Conclua em até cinco minutos:
+
+```go
+session, err := client.Authentication.Login(ctx, &models.LoginRequest{Email: email, Password: password})
+if err == nil && session.MFAToken != "" {
+	session, err = client.Authentication.VerifyMFA(ctx, &models.VerifyMFARequest{
+		MFAToken: session.MFAToken,
+		Code:     code, // código do autenticador ou de recuperação
+	})
+}
+```
 
 ## Erros e novas tentativas
 
@@ -1012,7 +1069,7 @@ oficial. Também expande todos os modelos de resposta, campo a campo.
 | --- | ---: | --- |
 | Contas | 10 | `client.Accounts` |
 | Assignments | 7 | `client.Assignments` |
-| Autenticação | 9 | `client.Authentication` |
+| Autenticação | 10 | `client.Authentication` |
 | Documentos | 18 | `client.Documents` |
 | Campos | 8 | `client.Fields` |
 | OAuth | 4 | pacote `oauth` |
@@ -1020,9 +1077,9 @@ oficial. Também expande todos os modelos de resposta, campo a campo.
 | Assinatura | 17 | `client.PublicDocuments`, `client.Signers`, `client.Assignments`, `client.SignerDocuments` |
 | Etiquetas | 4 | `client.Tags` |
 | Modelos | 1 | `client.Templates` |
-| Usuários | 4 | `client.Users` |
-| Webhooks | 6 | `client.Webhooks` |
-| **Total** | **93** | |
+| Usuários | 9 | `client.Users` |
+| Webhooks | 13 | `client.Webhooks` |
+| **Total** | **106** | |
 
 Além dessas operações o SDK também expõe `Client.UploadAndRequestSignatures`,
 `client.Templates.Get` (uma leitura de modelo único que a referência não lista como

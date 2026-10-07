@@ -102,7 +102,8 @@ const (
 	ScopeTemplatesWrite = "templates:write"
 	// ScopeAccountRead reads the workspace's profile, theme and logo.
 	ScopeAccountRead = "account:read"
-	// ScopeWebhooksWrite configures and deactivates the workspace webhook subscription.
+	// ScopeWebhooksWrite creates, changes and deletes the workspace webhook
+	// endpoints. Signing secrets are not readable with an OAuth token.
 	ScopeWebhooksWrite = "webhooks:write"
 	// ScopeOpenID identifies the authenticated user and enables Config.UserInfo.
 	ScopeOpenID = "openid"

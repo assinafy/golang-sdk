@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/assinafy/golang-sdk/internal"
 	"github.com/assinafy/golang-sdk/models"
@@ -81,4 +82,71 @@ func (r *UserResource) UpdateNotificationPreferences(ctx context.Context, change
 		return nil, err
 	}
 	return out, nil
+}
+
+// ListMFAMethods returns the authenticated user's enrolled two-factor methods
+// and the number of unused recovery codes.
+// GET /users/self/mfa.
+func (r *UserResource) ListMFAMethods(ctx context.Context) (*models.MFAStatus, error) {
+	var out models.MFAStatus
+	if _, err := r.http.NewRequest(http.MethodGet, "/users/self/mfa").Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// StartTOTPEnrollment creates an unconfirmed authenticator method with an
+// optional label and returns its TOTPEnrollment. The secret is returned only by
+// this call; two-factor authentication starts after ConfirmTOTPEnrollment.
+// POST /users/self/mfa/totp.
+func (r *UserResource) StartTOTPEnrollment(ctx context.Context, label string) (*models.TOTPEnrollment, error) {
+	body := struct {
+		Label string `json:"label,omitempty"`
+	}{label}
+	var out models.TOTPEnrollment
+	if _, err := r.http.NewRequest(http.MethodPost, "/users/self/mfa/totp").WithBody(body).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ConfirmTOTPEnrollment activates an enrollment with a live code from the new
+// device and returns the recovery codes, which are shown only once. From then on
+// every login requires a second factor. Replacing a confirmed method of the same
+// type also requires Password or ReauthCode and reissues the recovery codes.
+// PUT /users/self/mfa/totp/confirm.
+func (r *UserResource) ConfirmTOTPEnrollment(ctx context.Context, body *models.ConfirmTOTPRequest) ([]string, error) {
+	return r.recoveryCodes(ctx, http.MethodPut, "/users/self/mfa/totp/confirm", body)
+}
+
+// RegenerateRecoveryCodes issues ten new recovery codes and invalidates the
+// previous set. The request must carry the current password, a live
+// authenticator code or an unused recovery code, which is then consumed.
+// POST /users/self/mfa/recovery-codes.
+func (r *UserResource) RegenerateRecoveryCodes(ctx context.Context, body *models.MFAReauthRequest) ([]string, error) {
+	return r.recoveryCodes(ctx, http.MethodPost, "/users/self/mfa/recovery-codes", body)
+}
+
+// RemoveMFAMethod removes an enrolled method after the same re-authentication
+// as RegenerateRecoveryCodes, and reports whether two-factor authentication is
+// still enabled. Removing the last method also discards the recovery codes.
+// DELETE /users/self/mfa/{method_id}.
+func (r *UserResource) RemoveMFAMethod(ctx context.Context, methodID string, body *models.MFAReauthRequest) (bool, error) {
+	var out struct {
+		IsMFAEnabled bool `json:"is_mfa_enabled"`
+	}
+	if _, err := r.http.NewRequest(http.MethodDelete, "/users/self/mfa/"+url.PathEscape(methodID)).WithBody(body).Execute(ctx, &out); err != nil {
+		return false, err
+	}
+	return out.IsMFAEnabled, nil
+}
+
+func (r *UserResource) recoveryCodes(ctx context.Context, method, path string, body any) ([]string, error) {
+	var out struct {
+		RecoveryCodes []string `json:"recovery_codes"`
+	}
+	if _, err := r.http.NewRequest(method, path).WithBody(body).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out.RecoveryCodes, nil
 }

@@ -21,11 +21,28 @@ func NewAuthenticationResource(httpClient *internal.HTTPClient) *AuthenticationR
 }
 
 // Login sends LoginRequest without a client credential and returns an
-// AuthenticationResult containing the bearer token, user, and accounts.
+// AuthenticationResult containing the bearer token, user, and accounts. For a
+// user with two-factor authentication the result carries MFAToken instead of an
+// access token; complete the login with VerifyMFA.
 // POST /login.
 func (r *AuthenticationResource) Login(ctx context.Context, body *models.LoginRequest) (*models.AuthenticationResult, error) {
 	var out models.AuthenticationResult
 	_, err := r.http.NewRequest(http.MethodPost, "/login").WithoutAuth().WithBody(body).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// VerifyMFA completes a two-factor login without a client credential. It sends
+// the login's MFAToken with an authenticator or recovery code and returns the
+// AuthenticationResult with the access token. The challenge is single-use and
+// expires five minutes after login; an expired, reused or over-tried challenge
+// is a 401 APIError.
+// POST /authentication/mfa/verify.
+func (r *AuthenticationResource) VerifyMFA(ctx context.Context, body *models.VerifyMFARequest) (*models.AuthenticationResult, error) {
+	var out models.AuthenticationResult
+	_, err := r.http.NewRequest(http.MethodPost, "/authentication/mfa/verify").WithoutAuth().WithBody(body).Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}

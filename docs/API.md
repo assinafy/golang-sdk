@@ -1,6 +1,6 @@
 # Assinafy API v1 mapping
 
-This reference maps the Assinafy Go SDK to all 93 operations in the [API documentation](https://api.assinafy.com.br/v1/docs) and OpenAPI `3.0.0` [description](https://api.assinafy.com.br/v1/docs/openapi.json) for API version `1.0.0`.
+This reference maps the Assinafy Go SDK to all 106 operations in the [API documentation](https://api.assinafy.com.br/v1/docs) and OpenAPI `3.0.0` [description](https://api.assinafy.com.br/v1/docs/openapi.json) for API version `1.0.0`.
 
 ## Conventions
 
@@ -42,11 +42,12 @@ This reference maps the Assinafy Go SDK to all 93 operations in the [API documen
 | [PUT /v1/documents/{documentId}/assignments/{assignmentId}/reset-expiration](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Fdocuments%2F%7BdocumentId%7D%2Fassignments%2F%7BassignmentId%7D%2Freset-expiration) | API | `client.Assignments.ResetExpirationWithRequest(ctx, documentID, assignmentID, body)` | Required `application/json` body: `expires_at?: date-time` (the property is not marked required in the schema). | `data: models.Assignment` | Errors: 400, 401, 404, 500. Mutating. |
 | [GET /v1/documents/{documentId}/assignments/{assignmentId}/whatsapp-notifications](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fdocuments%2F%7BdocumentId%7D%2Fassignments%2F%7BassignmentId%7D%2Fwhatsapp-notifications) | API | `client.Assignments.ListWhatsAppNotifications(ctx, documentID, assignmentID)` | No body or query. | `data: []models.WhatsAppNotification` | Errors: 401, 500. |
 
-### Authentication — 9 operations
+### Authentication — 10 operations
 
 | Endpoint | Auth | SDK call | Request | Success response | Notes |
 | --- | --- | --- | --- | --- | --- |
-| [POST /v1/login](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Flogin) | Public | `client.Authentication.Login(ctx, body)` | `application/json`: `email*: email`; `password*: string`. | `data: models.AuthenticationResult` | Errors: 400, 500. Returns a bearer token. |
+| [POST /v1/login](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Flogin) | Public | `client.Authentication.Login(ctx, body)` | `application/json`: `email*: email`; `password*: string`. | `data: models.AuthenticationResult` | Errors: 400, 500. Returns a bearer token, or `mfa_token` for a user with two-factor authentication; complete that login with `VerifyMFA`. |
+| [POST /v1/authentication/mfa/verify](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Fauthentication%2Fmfa%2Fverify) | Public | `client.Authentication.VerifyMFA(ctx, body)` | `application/json`: `mfa_token*: string`; `code*: string` (6-digit authenticator code or recovery code such as `ABCD-EFGH-JKMN`). | `data: models.AuthenticationResult` | Errors: 400, 401 (challenge expired, used, or too many codes), 500. The challenge is single-use and expires five minutes after login. |
 | [POST /v1/authentication/social-login](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Fauthentication%2Fsocial-login) | Public | `client.Authentication.SocialLogin(ctx, body)` | `application/json`: `provider*: "google"`; `token*: string`; `has_accepted_terms*: boolean`. | `data: models.AuthenticationResult` | Errors: 400, 500. |
 | [POST /v1/auth/link-social-login](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Fauth%2Flink-social-login) | API | `client.Authentication.LinkSocialLogin(ctx, body)` | `application/json`: `provider*: "google"`; `token*: string`. | Envelope only | Errors: 400, 401, 500. Mutating. |
 | [PUT /v1/authentication/change-password](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Fauthentication%2Fchange-password) | API | `client.Authentication.ChangePassword(ctx, body)` | `application/json`: `email*: email`; `password*: string`; `new_password*: string`. | `data: models.EmailResult {email}` | Errors: 400, 401, 500. |
@@ -163,7 +164,7 @@ therefore not API operations. `config.AuthorizationURL` builds the first;
 | --- | --- | --- | --- | --- | --- |
 | [GET /v1/accounts/{accountId}/templates](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Ftemplates) | API | `client.Templates.List(ctx, accountID, params)` | Query: `search?: string`; `page?: integer >= 1`; `per-page?: integer` (max 100). | `models.PaginatedResult[models.Template]` | Errors: 401, 500. The list explicitly omits `default_document_tags`; use only documented params in the shared type. |
 
-### Users — 4 operations
+### Users — 9 operations
 
 | Endpoint | Auth | SDK call | Request | Success response | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -171,17 +172,29 @@ therefore not API operations. `config.AuthorizationURL` builds the first;
 | [GET /v1/users/self/stats](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fusers%2Fself%2Fstats) | API | `client.Users.Stats(ctx, params)` | Query: `granularity?: "monthly" or "daily"`; `month?: YYYY-MM` (required by the API when daily). | `data: []models.DocumentStatsRow` | Errors: 400, 401, 500. Series is zero-filled. |
 | [GET /v1/users/self/notification-preferences](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fusers%2Fself%2Fnotification-preferences) | API | `client.Users.GetNotificationPreferences(ctx)` | No body or query. | `data: models.NotificationPreferences` | Errors: 401, 500. Response contains all nine keys in the payload reference. |
 | [PUT /v1/users/self/notification-preferences](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Fusers%2Fself%2Fnotification-preferences) | API | `client.Users.UpdateNotificationPreferences(ctx, changes)` | `application/json`: any subset of `DocumentCompleted`, `SignerDeclined`, `DocumentCancelled`, `DocumentAboutToExpire`, `DocumentExpired`, `DocumentExpirationReset`, `DocumentProcessingFailed`, `TemplateProcessingFailed`, `SignerWhatsappFailed`, each boolean. | `data: models.NotificationPreferences` | Errors: 400, 401, 500. Mutating; response contains all nine keys. |
+| [GET /v1/users/self/mfa](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fusers%2Fself%2Fmfa) | API | `client.Users.ListMFAMethods(ctx)` | No body or query. | `data: models.MFAStatus` | Errors: 401, 500. |
+| [POST /v1/users/self/mfa/totp](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Fusers%2Fself%2Fmfa%2Ftotp) | API | `client.Users.StartTOTPEnrollment(ctx, label)` | `application/json`: `label?: string`. | `data: models.TOTPEnrollment` | Errors: 401, 500. The secret is returned only here; nothing is enforced until confirmation. |
+| [PUT /v1/users/self/mfa/totp/confirm](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Fusers%2Fself%2Fmfa%2Ftotp%2Fconfirm) | API | `client.Users.ConfirmTOTPEnrollment(ctx, body)` | `application/json`: `id*: string`; `code*: string` (from the new device); `password?: string`; `reauth_code?: string` (one of the two required only when replacing a confirmed method). | `data: {recovery_codes: []string}` (SDK returns `[]string`) | Errors: 400, 401, 404, 500. Recovery codes are shown once. Every later login requires a second factor. |
+| [POST /v1/users/self/mfa/recovery-codes](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Fusers%2Fself%2Fmfa%2Frecovery-codes) | API | `client.Users.RegenerateRecoveryCodes(ctx, body)` | `application/json`: `password?: string`; `code?: string` (live authenticator code or unused recovery code, which is consumed). Send one. | `data: {recovery_codes: []string}` (SDK returns `[]string`) | Errors: 400, 401, 500. Issues ten codes and invalidates the previous set. |
+| [DELETE /v1/users/self/mfa/{customId}](https://api.assinafy.com.br/v1/docs/markdown?method=delete&path=%2Fv1%2Fusers%2Fself%2Fmfa%2F%7BcustomId%7D) | API | `client.Users.RemoveMFAMethod(ctx, methodID, body)` | `application/json`: `password?: string`; `code?: string` (live authenticator code or unused recovery code, which is consumed). Send one. | `data: {is_mfa_enabled: boolean}` (SDK returns `bool`) | Errors: 400, 401, 404, 500. Removing the last method discards the recovery codes. |
 
-### Webhooks — 6 operations
+### Webhooks — 13 operations
 
 | Endpoint | Auth | SDK call | Request | Success response | Notes |
 | --- | --- | --- | --- | --- | --- |
-| [GET /v1/accounts/{accountId}/webhooks/subscriptions](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fsubscriptions) | API | `client.Webhooks.GetSubscription(ctx, accountID)` | No body or query. | `data: models.WebhookSubscription` | Errors: 401, 500. |
-| [PUT /v1/accounts/{accountId}/webhooks/subscriptions](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fsubscriptions) | API | `client.Webhooks.UpdateSubscription(ctx, accountID, body)` | Required `application/json`: `events*: []string`; `is_active*: boolean`; `url*: URI`; `email*: email`. | `data: models.WebhookSubscription` | Errors: 400, 401, 500. Replaces the subscription settings. |
+| [GET /v1/accounts/{accountId}/webhooks/subscriptions](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fsubscriptions) | API | `client.Webhooks.GetSubscription(ctx, accountID)` | No body or query. | `data: models.WebhookSubscription` | Errors: 401, 500. Returns the oldest endpoint. |
+| [PUT /v1/accounts/{accountId}/webhooks/subscriptions](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fsubscriptions) | API | `client.Webhooks.UpdateSubscription(ctx, accountID, body)` | Required `application/json`: `events*: []string`; `is_active*: boolean`; `url*: URI`; `email*: email`. | `data: models.WebhookSubscription` | Errors: 400, 401, 500. Replaces the oldest endpoint's settings, creating it when the account has none. |
 | [PUT /v1/accounts/{accountId}/webhooks/inactivate](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Finactivate) | API | `client.Webhooks.Inactivate(ctx, accountID)` | No body or query. | `data: models.WebhookSubscription` | Errors: 401, 500. This is the documented way to disable delivery. |
 | [GET /v1/webhooks/event-types](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Fwebhooks%2Fevent-types) | API | `client.Webhooks.ListEventTypes(ctx)` | No body or query. | `data: []models.WebhookEventType` | Errors: 401, 500. Fields: `id`, `description`. |
-| [GET /v1/accounts/{accountId}/webhooks](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks) | API | `client.Webhooks.ListDispatches(ctx, accountID, params)` | Query: `event?: string`; `delivered?: "true" or "false"`; `from?: Unix integer` (after); `to?: Unix integer` (before); `page?: integer` (default 1); `per-page?: integer` (default 20; SDK clamps to 100). | `models.PaginatedResult[models.WebhookDispatch]` | Errors: 401, 500. |
-| [POST /v1/accounts/{accountId}/webhooks/{historyId}/retry](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2F%7BhistoryId%7D%2Fretry) | API | `client.Webhooks.RetryDispatch(ctx, accountID, historyID)` | No body or query. | `data: models.WebhookDispatch` | Errors: 400, 401, 404, 500. Performs a new delivery attempt. |
+| [GET /v1/accounts/{accountId}/webhooks](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks) | API | `client.Webhooks.ListDispatches(ctx, accountID, params)` | Query: `endpoint_id?: string`; `event?: string`; `delivered?: "true" or "false"`; `from?: Unix integer` (after); `to?: Unix integer` (before); `page?: integer` (default 1); `per-page?: integer` (default 20; SDK clamps to 100). | `models.PaginatedResult[models.WebhookDispatch]` | Errors: 401, 500. |
+| [POST /v1/accounts/{accountId}/webhooks/{historyId}/retry](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2F%7BhistoryId%7D%2Fretry) | API | `client.Webhooks.RetryDispatch(ctx, accountID, historyID)` | No body or query. | `data: models.WebhookDispatch` | Errors: 400, 401, 404, 500. Performs a new delivery attempt to that entry's endpoint only. |
+| [GET /v1/accounts/{accountId}/webhooks/endpoints](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints) | API | `client.Webhooks.ListEndpoints(ctx, accountID)` | No body or query. | `data: []models.WebhookEndpoint` | Errors: 401, 500. Oldest first. OAuth scope `account:read`. |
+| [POST /v1/accounts/{accountId}/webhooks/endpoints](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints) | API | `client.Webhooks.CreateEndpoint(ctx, accountID, body)` | `application/json`: `url*: URI` (unique per workspace); `email*: email`; `events*: []string`; `name?: string`; `is_active?: boolean` (default true); `signing_enabled?: boolean` (default false). | `data: models.WebhookEndpoint` | Errors: 400 (validation or duplicate URL), 401, 403 (one endpoint, or three on paid plans), 500. OAuth scope `webhooks:write`. |
+| [GET /v1/accounts/{accountId}/webhooks/endpoints/{endpointId}](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints%2F%7BendpointId%7D) | API | `client.Webhooks.GetEndpoint(ctx, accountID, endpointID)` | No body or query. | `data: models.WebhookEndpoint` | Errors: 401, 404, 500. OAuth scope `account:read`. |
+| [PUT /v1/accounts/{accountId}/webhooks/endpoints/{endpointId}](https://api.assinafy.com.br/v1/docs/markdown?method=put&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints%2F%7BendpointId%7D) | API | `client.Webhooks.UpdateEndpoint(ctx, accountID, endpointID, body)` | `application/json`, any subset: `url?`, `email?`, `events?`, `name?`, `is_active?`, `signing_enabled?`. | `data: models.WebhookEndpoint` | Errors: 400, 401, 404, 500. Only sent fields change. `signing_enabled: true` keeps an existing secret; `false` discards it. OAuth scope `webhooks:write`. |
+| [DELETE /v1/accounts/{accountId}/webhooks/endpoints/{endpointId}](https://api.assinafy.com.br/v1/docs/markdown?method=delete&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints%2F%7BendpointId%7D) | API | `client.Webhooks.DeleteEndpoint(ctx, accountID, endpointID)` | No body or query. | `data: []` (SDK returns only `error`) | Errors: 401, 404, 500. Frees the slot. OAuth scope `webhooks:write`. |
+| [GET /v1/accounts/{accountId}/webhooks/endpoints/{endpointId}/secret](https://api.assinafy.com.br/v1/docs/markdown?method=get&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints%2F%7BendpointId%7D%2Fsecret) | API | `client.Webhooks.GetEndpointSecret(ctx, accountID, endpointID)` | No body or query. | `data: {secret: "whsec_…"}` (SDK returns `string`) | Errors: 400 (signing disabled), 401, 404, 500. Not available to OAuth applications. |
+| [POST /v1/accounts/{accountId}/webhooks/endpoints/{endpointId}/secret/rotate](https://api.assinafy.com.br/v1/docs/markdown?method=post&path=%2Fv1%2Faccounts%2F%7BaccountId%7D%2Fwebhooks%2Fendpoints%2F%7BendpointId%7D%2Fsecret%2Frotate) | API | `client.Webhooks.RotateEndpointSecret(ctx, accountID, endpointID)` | No body or query. | `data: {secret: "whsec_…"}` (SDK returns `string`) | Errors: 400 (signing disabled), 401, 404, 500. The old secret stops working immediately. Not available to OAuth applications. |
 
 ## Routes without a published contract
 
@@ -235,7 +248,9 @@ The OpenAPI response components generally do not declare `required` arrays, so t
 
 - **Envelope**: `{status: integer, message: string}` plus the operation-specific `data` documented above.
 - **ErrorEnvelope**: `{status: integer, message: string, data: object or null}`. `errors.APIError` also retains the HTTP status and response headers. Account-deletion 400 responses add `restrictions: [{code: "ActivePaidSubscription" or "PendingDocuments", message: string, account_ids: []string}]`.
-- **`models.AuthenticationResult`** (`AuthSession`): `{access_token: string, user: AuthUser, accounts: []AuthAccount}`.
+- **`models.AuthenticationResult`** (`AuthSession`): `{access_token: string, user: AuthUser, accounts: []AuthAccount}`. A login that needs a second factor carries `mfa_token: string` for `VerifyMFA`.
+- **`models.MFAStatus`**: `{methods: []{id: string, type: string ("Totp"), label: string, confirmed_at: date-time, last_used_at: date-time or null}, recovery_codes_remaining: integer}`.
+- **`models.TOTPEnrollment`**: `{id: string, secret: string (base32), provisioning_uri: string (otpauth://)}`.
 - **`models.User`** (`AuthUser`): `{id: string, name: string, email: email, telephone: string or null, government_id: string or null, is_email_verified: boolean, has_accepted_terms: boolean, is_password_set?: boolean, created_at: date-time, to_be_deleted_at: date-time or null}`. `is_password_set` is used by webhook user subjects. Nullable `telephone` and `government_id` decode to empty Go strings.
 - **`models.WorkspaceListItem`** (`AuthAccount`): `{id: string, name: string, roles: []string, is_delete_allowed: boolean, created_at: date-time}`.
 - **`models.APIKeyResult`** (`ApiKey`): `{api_key: string or null}`.
@@ -300,11 +315,12 @@ None of these are wrapped in the envelope.
 ### Webhook payloads
 
 - **`models.WebhookSubscription`**: `{events: []string, is_active: boolean, url: string or null, email: string or null, updated_at: date-time or null}`.
+- **`models.WebhookEndpoint`**: `{id: string, name: string or null, url: URI, email: email, events: []string, is_active: boolean, signing_enabled: boolean, created_at: date-time, updated_at: date-time}`.
 - **`models.WebhookEventType`**: `{id: string, description: string}`.
-- **`models.WebhookDispatch`**: `{resource: string, id: string, event: string, activity_id: integer, endpoint: string or null, payload: object or null, delivered: boolean, http_status: integer or null, response_body: string or null, error: string or null, created_at: date-time, updated_at: date-time}`.
+- **`models.WebhookDispatch`**: `{resource: string, id: string, event: string, activity_id: integer, endpoint_id: string or null (null once the endpoint is deleted), endpoint: string or null, payload: object or null, delivered: boolean, http_status: integer or null, response_body: string or null, error: string or null, created_at: date-time, updated_at: date-time}`.
 - **`models.WebhookPayload`**: `{id: integer, event: string, message: string or null, payload: object or null, origin: {ip: string, user-agent: string} or null, created_at: Unix integer, subject: object, object: object, account_id: string}`. `subject` and `object` include a `type` property (`User`, `Signer`, `Account`, `Document`, or `Template`) and the corresponding resource fields. `models.Timestamp.String()` returns the webhook `created_at` seconds in base-10 form.
 
-Webhook deliveries are HTTP `POST` requests with `Content-Type: application/json` and `Connection: close`. Any 2xx response succeeds. Assinafy makes up to two attempts with a three-second retry delay, stores the first 2,000 response characters, and pauses normal delivery after ten consecutive failed events while probing about five percent of subsequent events. `RetryDispatch` forces another attempt.
+Webhook deliveries are HTTP `POST` requests with `Content-Type: application/json`, `Connection: close`, `webhook-id` (the same on every attempt of one event to one endpoint) and `webhook-timestamp` (Unix seconds). Every active endpoint subscribed to an event receives it independently, with its own failure count. Any 2xx response succeeds. Assinafy makes up to two attempts with a three-second retry delay, stores the first 2,000 response characters, and pauses normal delivery after ten consecutive failed events while probing about five percent of subsequent events. `RetryDispatch` forces another attempt.
 
 | Event | Subject | Object | Payload keys |
 | --- | --- | --- | --- |
@@ -327,7 +343,11 @@ Webhook deliveries are HTTP `POST` requests with `Content-Type: application/json
 | `template_processed` | User | Template | none |
 | `template_processing_failed` | Account | Template | `error_message` |
 
-Consumers should deduplicate on `id`, accept unknown JSON fields and event names, and not assume ordering between `assignment_created` and `document_metadata_ready`.
+### Webhook signatures
+
+An endpoint with `signing_enabled` adds `webhook-signature`, following [Standard Webhooks](https://www.standardwebhooks.com): one or more space-separated `v1,<base64>` entries, each `base64(HMAC-SHA256(key, "{webhook-id}.{webhook-timestamp}.{raw body}"))`, where `key` is the base64-decoded part of the secret after `whsec_`. `NewWebhookVerifier(secret).VerifyRequest(r.Header, body)` checks the signature in constant time and rejects a `webhook-timestamp` more than `WebhookTolerance` (five minutes) from the local clock. A rotated secret applies to every delivery sent after the rotation.
+
+Consumers should deduplicate on the `webhook-id` header, accept unknown JSON fields and event names, and not assume ordering between `assignment_created` and `document_metadata_ready`.
 
 ### SDK workflow payloads
 
@@ -372,5 +392,6 @@ These methods remain available in the Go package in addition to the operation ca
 | `client.Fields.Validate` and `ValidateMultiple` | Deprecated signer-code forms. The published endpoints use API authentication through `ValidateAuthenticated` and `ValidateMultipleAuthenticated`. |
 | `client.Documents.DetachTag` | Executes tag detachment and discards `{detached}`; `DetachTagWithResult` returns it. |
 | `client.Tags.Delete` | Executes tag deletion and discards `{deleted}`; `DeleteWithResult` returns it. |
+| `NewWebhookVerifier(secret).VerifyRequest` | Verifies the Standard Webhooks `webhook-signature` of a delivery from its headers and raw body. Returns `nil`, an error wrapping `ErrInvalidWebhookSignature`, or one wrapping `errors.ErrInvalidInput` for a malformed secret. |
 | `NewWebhookVerifier(secret).ExtractEvent` | Decodes delivery JSON into `models.WebhookPayload`. |
-| `NewWebhookVerifier(secret).Verify` | Checks a supplied signature against `hex(HMAC-SHA256(secret, body))`; use only when that signing contract has been agreed with Assinafy. |
+| `NewWebhookVerifier(secret).Verify` | Deprecated. Checks `hex(HMAC-SHA256(secret, body))`; deliveries are signed with Standard Webhooks, which `VerifyRequest` checks. |

@@ -306,6 +306,14 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 	tagName := "Priority"
 	maskedKey := "issued****"
 	agreementCode := "550E8400-E29B-41D4-A716-446655440000"
+	inactive, signing := false, true
+	endpointName, endpointID := "ERP", "ep/1"
+	confirmedAt := models.Timestamp("2026-09-09T14:21:03Z")
+	endpoint := models.WebhookEndpoint{
+		ID: "ep/1", Name: &endpointName, URL: "https://example.test/hook", Email: "ops@example.test",
+		Events: []string{"document_ready"}, IsActive: true, SigningEnabled: true,
+		CreatedAt: "2026-10-01T12:00:00Z", UpdatedAt: "2026-10-01T12:00:00Z",
+	}
 	assignmentBody := models.CreateAssignmentRequest{
 		Method:  models.MethodVirtual,
 		Signers: []models.SignerReference{{ID: "signer-1"}},
@@ -662,6 +670,139 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 				return NewWebhookResource(h, "").ListEventTypes(ctx)
 			},
 			want: []models.WebhookEventType{{ID: "document_ready", Description: "Document ready"}},
+		},
+		{
+			name: "webhook list endpoints", method: http.MethodGet,
+			path: "/accounts/acc%2F1/webhooks/endpoints", authenticated: true,
+			response: `{"status":200,"data":[{"id":"ep/1","name":"ERP","url":"https://example.test/hook","email":"ops@example.test","events":["document_ready"],"is_active":true,"signing_enabled":true,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}]}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "acc/1").ListEndpoints(ctx, "")
+			},
+			want: []models.WebhookEndpoint{endpoint},
+		},
+		{
+			name: "webhook create endpoint", method: http.MethodPost,
+			path: "/accounts/acc%2F1/webhooks/endpoints", authenticated: true,
+			jsonBody: map[string]any{"url": "https://example.test/hook", "email": "ops@example.test", "events": []string{"document_ready"}, "name": "ERP", "signing_enabled": true},
+			response: `{"status":200,"data":{"id":"ep/1","name":"ERP","url":"https://example.test/hook","email":"ops@example.test","events":["document_ready"],"is_active":true,"signing_enabled":true,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "acc/1").CreateEndpoint(ctx, "", &models.CreateWebhookEndpointRequest{
+					URL: "https://example.test/hook", Email: "ops@example.test", Events: []string{"document_ready"}, Name: "ERP", SigningEnabled: true,
+				})
+			},
+			want: &endpoint,
+		},
+		{
+			name: "webhook get endpoint", method: http.MethodGet,
+			path: "/accounts/acc%2F1/webhooks/endpoints/ep%2F1", authenticated: true,
+			response: `{"status":200,"data":{"id":"ep/1","name":"ERP","url":"https://example.test/hook","email":"ops@example.test","events":["document_ready"],"is_active":true,"signing_enabled":true,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "acc/1").GetEndpoint(ctx, "", "ep/1")
+			},
+			want: &endpoint,
+		},
+		{
+			name: "webhook update endpoint", method: http.MethodPut,
+			path: "/accounts/acc%2F1/webhooks/endpoints/ep%2F1", authenticated: true,
+			jsonBody: map[string]any{"is_active": false, "signing_enabled": true},
+			response: `{"status":200,"data":{"id":"ep/1","name":"ERP","url":"https://example.test/hook","email":"ops@example.test","events":["document_ready"],"is_active":true,"signing_enabled":true,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "acc/1").UpdateEndpoint(ctx, "", "ep/1", &models.UpdateWebhookEndpointRequest{IsActive: &inactive, SigningEnabled: &signing})
+			},
+			want: &endpoint,
+		},
+		{
+			name: "webhook delete endpoint", method: http.MethodDelete,
+			path: "/accounts/acc%2F1/webhooks/endpoints/ep%2F1", authenticated: true,
+			response: `{"status":200,"data":[]}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return nil, NewWebhookResource(h, "acc/1").DeleteEndpoint(ctx, "", "ep/1")
+			},
+		},
+		{
+			name: "webhook get endpoint secret", method: http.MethodGet,
+			path: "/accounts/acc%2F1/webhooks/endpoints/ep%2F1/secret", authenticated: true,
+			response: `{"status":200,"data":{"secret":"whsec_c2VjcmV0"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "acc/1").GetEndpointSecret(ctx, "", "ep/1")
+			},
+			want: "whsec_c2VjcmV0",
+		},
+		{
+			name: "webhook rotate endpoint secret", method: http.MethodPost,
+			path: "/accounts/acc%2F1/webhooks/endpoints/ep%2F1/secret/rotate", authenticated: true,
+			response: `{"status":200,"data":{"secret":"whsec_bmV3"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "acc/1").RotateEndpointSecret(ctx, "", "ep/1")
+			},
+			want: "whsec_bmV3",
+		},
+		{
+			name: "webhook list dispatches by endpoint", method: http.MethodGet,
+			path: "/accounts/acc%2F1/webhooks", authenticated: true,
+			query:    url.Values{"page": {"1"}, "per-page": {"20"}, "endpoint_id": {"ep/1"}},
+			response: `{"status":200,"data":[{"id":"d1","event":"document_ready","endpoint_id":"ep/1","delivered":true}]}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				got, err := NewWebhookResource(h, "acc/1").ListDispatches(ctx, "", &models.WebhookDispatchListParams{EndpointID: "ep/1"})
+				if err != nil {
+					return nil, err
+				}
+				return got.Data, nil
+			},
+			want: []models.WebhookDispatch{{ID: "d1", Event: "document_ready", EndpointID: &endpointID, Delivered: true}},
+		},
+		{
+			name: "authentication verify MFA", method: http.MethodPost, path: "/authentication/mfa/verify",
+			jsonBody: models.VerifyMFARequest{MFAToken: "challenge", Code: "123456"},
+			response: `{"status":200,"data":{"access_token":"mfa-token","user":{"id":"u1"},"accounts":[]}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewAuthenticationResource(h).VerifyMFA(ctx, &models.VerifyMFARequest{MFAToken: "challenge", Code: "123456"})
+			},
+			want: &models.AuthenticationResult{AccessToken: "mfa-token", User: models.User{ID: "u1"}, Accounts: []models.WorkspaceListItem{}},
+		},
+		{
+			name: "user list MFA methods", method: http.MethodGet, path: "/users/self/mfa", authenticated: true,
+			response: `{"status":200,"data":{"methods":[{"id":"m1","type":"Totp","label":"Phone","confirmed_at":"2026-09-09T14:21:03Z","last_used_at":null}],"recovery_codes_remaining":8}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewUserResource(h).ListMFAMethods(ctx)
+			},
+			want: &models.MFAStatus{Methods: []models.MFAMethod{{ID: "m1", Type: "Totp", Label: "Phone", ConfirmedAt: &confirmedAt}}, RecoveryCodesRemaining: 8},
+		},
+		{
+			name: "user start TOTP enrollment", method: http.MethodPost, path: "/users/self/mfa/totp", authenticated: true,
+			jsonBody: map[string]any{"label": "Phone"},
+			response: `{"status":200,"data":{"id":"m1","secret":"GEZDGNBV","provisioning_uri":"otpauth://totp/x"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewUserResource(h).StartTOTPEnrollment(ctx, "Phone")
+			},
+			want: &models.TOTPEnrollment{ID: "m1", Secret: "GEZDGNBV", ProvisioningURI: "otpauth://totp/x"},
+		},
+		{
+			name: "user confirm TOTP enrollment", method: http.MethodPut, path: "/users/self/mfa/totp/confirm", authenticated: true,
+			jsonBody: models.ConfirmTOTPRequest{ID: "m1", Code: "123456", ReauthCode: "654321"},
+			response: `{"status":200,"data":{"recovery_codes":["ABCD-EFGH-JKMN"]}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewUserResource(h).ConfirmTOTPEnrollment(ctx, &models.ConfirmTOTPRequest{ID: "m1", Code: "123456", ReauthCode: "654321"})
+			},
+			want: []string{"ABCD-EFGH-JKMN"},
+		},
+		{
+			name: "user regenerate recovery codes", method: http.MethodPost, path: "/users/self/mfa/recovery-codes", authenticated: true,
+			jsonBody: map[string]any{"password": "current-secret"},
+			response: `{"status":200,"data":{"recovery_codes":["WXYZ-ABCD-EFGH"]}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewUserResource(h).RegenerateRecoveryCodes(ctx, &models.MFAReauthRequest{Password: "current-secret"})
+			},
+			want: []string{"WXYZ-ABCD-EFGH"},
+		},
+		{
+			name: "user remove MFA method", method: http.MethodDelete, path: "/users/self/mfa/m%2F1", authenticated: true,
+			jsonBody: map[string]any{"code": "123456"},
+			response: `{"status":200,"data":{"is_mfa_enabled":false}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewUserResource(h).RemoveMFAMethod(ctx, "m/1", &models.MFAReauthRequest{Code: "123456"})
+			},
+			want: false,
 		},
 	}
 
