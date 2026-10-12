@@ -133,11 +133,15 @@ type EstimateAssignmentCostSigner struct {
 }
 
 // ResetAssignmentExpirationRequest is the body for
-// PUT /documents/{id}/assignments/{aid}/reset-expiration.
+// PUT /documents/{id}/assignments/{aid}/reset-expiration:
+//
+//	{"expires_at": string | null}
+//
+// The expires_at key is always sent, as the API requires it.
 type ResetAssignmentExpirationRequest struct {
-	// ExpiresAt is an optional ISO-8601 expiration date/time. Nil omits the
-	// property and lets the API apply its default.
-	ExpiresAt *string `json:"expires_at,omitempty"`
+	// ExpiresAt is the new ISO-8601 expiration date-time, at least one hour in
+	// the future. Nil sends null, which removes the assignment's expiration.
+	ExpiresAt *string `json:"expires_at"`
 }
 
 // AssignmentEntry positions a set of fields on a specific document page.

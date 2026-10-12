@@ -144,27 +144,24 @@ func (r *AssignmentResource) EstimateResendCost(ctx context.Context, documentID,
 	return &out, nil
 }
 
-// ResetExpiration uses client authentication, sends expires_at explicitly (JSON
-// null when expiresAt is nil), and returns the updated Assignment. The null form
-// is retained for compatibility with earlier SDK releases.
-// PUT /documents/{document_id}/assignments/{assignment_id}/reset-expiration.
+// ResetExpiration sets the assignment's expiration to expiresAt, an ISO-8601
+// date-time at least one hour in the future, or removes the expiration when
+// expiresAt is nil. It uses client authentication and returns the updated
+// Assignment. Closed documents produce an API error.
 //
-// Deprecated: use ResetExpirationWithRequest for the current optional,
-// non-null expires_at contract.
+// Request: {"expires_at": string | null}; the key is always sent.
+//
+// PUT /documents/{document_id}/assignments/{assignment_id}/reset-expiration.
 func (r *AssignmentResource) ResetExpiration(ctx context.Context, documentID, assignmentID string, expiresAt *string) (*models.Assignment, error) {
-	return r.resetExpiration(ctx, documentID, assignmentID, map[string]*string{"expires_at": expiresAt})
+	return r.ResetExpirationWithRequest(ctx, documentID, assignmentID, models.ResetAssignmentExpirationRequest{ExpiresAt: expiresAt})
 }
 
-// ResetExpirationWithRequest uses client authentication, sends the required
-// JSON object (omitting expires_at when body.ExpiresAt is nil), and returns the
-// updated Assignment. The operation changes the signing deadline and may
-// produce lifecycle notifications.
+// ResetExpirationWithRequest sends body as {"expires_at": string | null} and
+// returns the updated Assignment. A nil body.ExpiresAt sends null, which
+// removes the expiration. It uses client authentication.
+//
 // PUT /documents/{document_id}/assignments/{assignment_id}/reset-expiration.
 func (r *AssignmentResource) ResetExpirationWithRequest(ctx context.Context, documentID, assignmentID string, body models.ResetAssignmentExpirationRequest) (*models.Assignment, error) {
-	return r.resetExpiration(ctx, documentID, assignmentID, body)
-}
-
-func (r *AssignmentResource) resetExpiration(ctx context.Context, documentID, assignmentID string, body any) (*models.Assignment, error) {
 	var out models.Assignment
 	path := "/documents/" + url.PathEscape(documentID) +
 		"/assignments/" + url.PathEscape(assignmentID) +
@@ -184,8 +181,7 @@ func (r *AssignmentResource) resetExpiration(ctx context.Context, documentID, as
 func (r *AssignmentResource) Sign(ctx context.Context, documentID, assignmentID, signerAccessCode string, items []models.SignDocumentItem) error {
 	path := "/documents/" + url.PathEscape(documentID) + "/assignments/" + url.PathEscape(assignmentID)
 	_, err := r.http.NewRequest(http.MethodPost, path).
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(nonNil(items)).
 		Execute(ctx, nil)
 	return err
@@ -201,8 +197,7 @@ func (r *AssignmentResource) Decline(ctx context.Context, documentID, assignment
 		"/assignments/" + url.PathEscape(assignmentID) +
 		"/reject"
 	_, err := r.http.NewRequest(http.MethodPut, path).
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, nil)
 	return err
@@ -240,7 +235,7 @@ func (r *AssignmentResource) GetSigningInfoWithTerms(ctx context.Context, signer
 
 func (r *AssignmentResource) getSigningInfo(ctx context.Context, signerAccessCode string, hasAcceptedTerms *bool) (*models.Document, error) {
 	var out models.Document
-	req := r.http.NewRequest(http.MethodGet, "/sign").WithoutAuth().WithQuery("signer-access-code", signerAccessCode)
+	req := r.http.NewRequest(http.MethodGet, "/sign").WithSignerAccessCode(signerAccessCode)
 	if hasAcceptedTerms != nil {
 		req.WithQuery("has_accepted_terms", strconv.FormatBool(*hasAcceptedTerms))
 	}

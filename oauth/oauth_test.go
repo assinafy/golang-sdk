@@ -603,6 +603,27 @@ func TestTokenEndpointErrors(t *testing.T) {
 	}
 }
 
+func TestTokenEndpointRateLimit(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.Header().Set("X-Rate-Limit-Limit", "10")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error":"slow_down","error_description":"Too many requests."}`)
+	})
+
+	_, err := newTestConfig(srv).Exchange(context.Background(), "code", "verifier")
+	var oauthErr *Error
+	if !errors.As(err, &oauthErr) || oauthErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("err = %#v", err)
+	}
+	if got := oauthErr.RateLimit(); got.RetryAfter != 30*time.Second || got.Limit != 10 {
+		t.Errorf("RateLimit() = %+v", got)
+	}
+	if got := (*Error)(nil).RateLimit(); got.RetryAfter != 0 {
+		t.Errorf("nil RateLimit() = %+v", got)
+	}
+}
+
 func TestRevoke(t *testing.T) {
 	var form url.Values
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -699,13 +720,13 @@ func TestErrorFormattingAndFallbacks(t *testing.T) {
 	}
 
 	// A body that is neither an OAuth error nor an envelope is still reported.
-	err := newResponseError(http.StatusBadGateway, []byte("upstream down"))
+	err := newResponseError(http.StatusBadGateway, nil, []byte("upstream down"))
 	var oauthErr *Error
 	if !errors.As(err, &oauthErr) || oauthErr.Description != "upstream down" {
 		t.Fatalf("err = %#v", err)
 	}
 	// So is an empty one.
-	err = newResponseError(http.StatusServiceUnavailable, nil)
+	err = newResponseError(http.StatusServiceUnavailable, nil, nil)
 	if !errors.As(err, &oauthErr) || oauthErr.Description != http.StatusText(http.StatusServiceUnavailable) {
 		t.Fatalf("err = %#v", err)
 	}

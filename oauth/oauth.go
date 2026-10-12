@@ -205,6 +205,18 @@ type Error struct {
 	Description string `json:"error_description"`
 	// StatusCode is the HTTP status that carried the error.
 	StatusCode int `json:"-"`
+
+	rateLimit sdkerrors.RateLimit
+}
+
+// RateLimit returns the quota the server reported with the error. On a 429,
+// wait RetryAfter before another token request; never resend a refresh whose
+// outcome is unknown (see ErrRefreshIndeterminate).
+func (e *Error) RateLimit() sdkerrors.RateLimit {
+	if e == nil {
+		return sdkerrors.RateLimit{}
+	}
+	return e.rateLimit
 }
 
 // Error formats the OAuth error code, description and status.
@@ -740,7 +752,7 @@ func (c *Config) do(client *http.Client, req *http.Request, result any) error {
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return newResponseError(resp.StatusCode, body)
+		return newResponseError(resp.StatusCode, resp.Header, body)
 	}
 	if result == nil {
 		return nil
@@ -753,8 +765,8 @@ func (c *Config) do(client *http.Client, req *http.Request, result any) error {
 
 // newResponseError decodes the flat OAuth error object, falling back to the
 // API's own envelope for failures raised before the OAuth handler runs.
-func newResponseError(statusCode int, body []byte) error {
-	oauthErr := &Error{StatusCode: statusCode}
+func newResponseError(statusCode int, headers http.Header, body []byte) error {
+	oauthErr := &Error{StatusCode: statusCode, rateLimit: sdkerrors.ParseRateLimit(headers)}
 	if err := json.Unmarshal(body, oauthErr); err == nil && oauthErr.Code != "" {
 		return oauthErr
 	}

@@ -1,5 +1,11 @@
 package models
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
 // DocumentStatus enumerates documented lifecycle states and compatible states
 // returned by current or earlier Assinafy deployments.
 type DocumentStatus string
@@ -242,9 +248,10 @@ type DocumentStatusInfo struct {
 	Deletable bool `json:"deletable"`
 }
 
-// PublicDocumentInfo is the legacy reduced projection decoded by the deprecated
-// PublicDocumentResource.Get method. Public deployments can return this shape;
-// the published schema describes the richer Document shape.
+// PublicDocumentInfo is the public projection of a document: the data of
+// PublicDocumentResource.Get and the document inside SendDocumentTokenResult.
+//
+//	{"resource": string, "id": string, "name": string, "page_count": integer, "created_by": string}
 type PublicDocumentInfo struct {
 	// Resource is the API resource discriminator when present.
 	Resource string `json:"resource,omitempty"`
@@ -252,31 +259,68 @@ type PublicDocumentInfo struct {
 	ID string `json:"id"`
 	// Name is the public document display name.
 	Name string `json:"name"`
-	// PageCount is the page count as encoded by the public API.
+	// PageCount is the number of pages in decimal. The API contract declares an
+	// integer and some deployments send a string; both decode here.
 	PageCount string `json:"page_count"`
 	// CreatedBy is the document creator label exposed publicly.
 	CreatedBy string `json:"created_by"`
 }
 
-// SendDocumentTokenRequest is the body for PUT /public/documents/{id}/send-token.
-type SendDocumentTokenRequest struct {
-	// Email is the optional recipient email documented by the current API contract.
-	Email string `json:"email,omitempty"`
-	// Recipient is retained for compatibility with the legacy request shape.
-	// Deprecated: use Email or PublicDocumentResource.SendTokenByEmail.
-	Recipient string `json:"recipient,omitempty"`
-	// Channel is retained for compatibility with the legacy request shape.
-	// Deprecated: the current API contract only documents email delivery.
-	Channel string `json:"channel,omitempty"`
+// UnmarshalJSON decodes page_count from either a JSON integer or a string.
+func (p *PublicDocumentInfo) UnmarshalJSON(data []byte) error {
+	type plain PublicDocumentInfo
+	aux := struct {
+		*plain
+		PageCount json.RawMessage `json:"page_count"`
+	}{plain: (*plain)(p)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	p.PageCount = ""
+	raw := bytes.TrimSpace(aux.PageCount)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	if raw[0] == '"' {
+		return json.Unmarshal(raw, &p.PageCount)
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return fmt.Errorf("assinafy: page_count must be a number or string: %w", err)
+	}
+	p.PageCount = n.String()
+	return nil
 }
 
-// SendDocumentTokenResult is the legacy data payload decoded by the deprecated
-// PublicDocumentResource.SendToken method. The current endpoint is envelope-only.
-type SendDocumentTokenResult struct {
-	// Document is the limited public-document payload associated with the token.
-	Document PublicDocumentInfo `json:"document"`
-	// Channel is the legacy delivery channel returned by the API.
+// SendTokenChannelEmail is the only delivery channel the send-token operation
+// supports.
+const SendTokenChannelEmail = "email"
+
+// SendDocumentTokenRequest is the body for PUT /public/documents/{id}/send-token:
+//
+//	{"channel": "email", "recipient": string}
+//
+// Both properties are required. PublicDocumentResource fills Channel with
+// "email" when it is empty and uses Email as the recipient when Recipient is empty.
+type SendDocumentTokenRequest struct {
+	// Email is an alias for Recipient, used only when Recipient is empty. It is
+	// never sent on the wire; prefer Recipient.
+	Email string `json:"-"`
+	// Recipient is the email address of a signer of the document who has not
+	// signed yet.
+	Recipient string `json:"recipient"`
+	// Channel is the delivery channel; only "email" (SendTokenChannelEmail) is supported.
 	Channel string `json:"channel"`
-	// Recipient is the legacy destination returned by the API.
+}
+
+// SendDocumentTokenResult is the data of PUT /public/documents/{id}/send-token:
+//
+//	{"document": {"resource", "id", "name", "page_count", "created_by"}, "channel": "email", "recipient": string}
+type SendDocumentTokenResult struct {
+	// Document is the public projection of the document the token opens.
+	Document PublicDocumentInfo `json:"document"`
+	// Channel is the channel the token was sent on.
+	Channel string `json:"channel"`
+	// Recipient is the address the token was sent to.
 	Recipient string `json:"recipient"`
 }

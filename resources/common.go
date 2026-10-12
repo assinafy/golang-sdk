@@ -3,8 +3,13 @@
 // Unless a method says otherwise, it uses the API key or bearer token configured
 // on assinafy.Client. Account-scoped methods accept an account ID and fall back
 // to ClientOptions.AccountID when it is empty. Signer-facing methods authenticate
-// with their signer access code, and public/authentication methods need no client
-// credential unless their comments say otherwise.
+// with their signer access code alone: they never send the client's API key or
+// bearer token, and an empty code is rejected with errors.ErrInvalidInput before
+// any request. Public/authentication methods need no client credential unless
+// their comments say otherwise.
+//
+// The API reports its request quota in X-Rate-Limit-* headers and answers 429
+// with Retry-After once it is spent; read them with (*errors.APIError).RateLimit.
 //
 // JSON methods encode the documented models request and decode the response's
 // data envelope into the documented result. Download methods return raw bytes.

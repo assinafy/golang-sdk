@@ -137,15 +137,19 @@ func TestResetExpirationRequestShapes(t *testing.T) {
 		call func(*AssignmentResource) error
 		want map[string]any
 	}{
-		{"legacy null", func(r *AssignmentResource) error {
+		{"nil clears", func(r *AssignmentResource) error {
 			_, err := r.ResetExpiration(context.Background(), "d1", "a1", nil)
 			return err
 		}, map[string]any{"expires_at": nil}},
-		{"exact omitted", func(r *AssignmentResource) error {
+		{"request nil clears", func(r *AssignmentResource) error {
 			_, err := r.ResetExpirationWithRequest(context.Background(), "d1", "a1", models.ResetAssignmentExpirationRequest{})
 			return err
-		}, map[string]any{}},
-		{"exact value", func(r *AssignmentResource) error {
+		}, map[string]any{"expires_at": nil}},
+		{"value", func(r *AssignmentResource) error {
+			_, err := r.ResetExpiration(context.Background(), "d1", "a1", &expiresAt)
+			return err
+		}, map[string]any{"expires_at": expiresAt}},
+		{"request value", func(r *AssignmentResource) error {
 			_, err := r.ResetExpirationWithRequest(context.Background(), "d1", "a1", models.ResetAssignmentExpirationRequest{ExpiresAt: &expiresAt})
 			return err
 		}, map[string]any{"expires_at": expiresAt}},

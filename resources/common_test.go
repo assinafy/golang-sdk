@@ -137,3 +137,55 @@ func TestRequiredArrayBodiesEncodeAsArrays(t *testing.T) {
 		})
 	}
 }
+
+// TestSignerAccessCodeMethodsRejectEmptyCode checks that no method taking a
+// signer access code reaches the network, and so can never fall back to the
+// workspace credential, when the code is empty.
+func TestSignerAccessCodeMethodsRejectEmptyCode(t *testing.T) {
+	httpClient, _ := newTestClient(t, func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("request sent without a signer access code: %s %s", r.Method, r.URL)
+	})
+	ctx := context.Background()
+	signers := NewSignerResource(httpClient, "acc")
+	documents := NewSignerDocumentResource(httpClient)
+	assignments := NewAssignmentResource(httpClient)
+	fields := NewFieldResource(httpClient, "acc")
+	png := []byte("\x89PNG\r\n\x1a\n")
+
+	calls := map[string]func(code string) error{
+		"Signers.GetSelf":                  func(c string) error { _, err := signers.GetSelf(ctx, c); return err },
+		"Signers.AcceptTerms":              func(c string) error { _, err := signers.AcceptTerms(ctx, c); return err },
+		"Signers.AcceptTermsOnly":          func(c string) error { return signers.AcceptTermsOnly(ctx, c) },
+		"Signers.VerifyEmail":              func(c string) error { return signers.VerifyEmail(ctx, c, "123456") },
+		"Signers.ConfirmData":              func(c string) error { return signers.ConfirmData(ctx, "doc", c, nil) },
+		"Signers.ConfirmDataAndGet":        func(c string) error { _, err := signers.ConfirmDataAndGet(ctx, "doc", c, nil); return err },
+		"Signers.UploadSignature":          func(c string) error { return signers.UploadSignature(ctx, c, "signature", png) },
+		"Signers.UploadSignatureWithReuse": func(c string) error { return signers.UploadSignatureWithReuse(ctx, c, "signature", true, png) },
+		"Signers.UploadSignatureWithContentType": func(c string) error {
+			return signers.UploadSignatureWithContentType(ctx, c, "signature", "image/png", png)
+		},
+		"Signers.DownloadSignature":            func(c string) error { _, err := signers.DownloadSignature(ctx, c, "signature"); return err },
+		"Signers.StartCertificateSignature":    func(c string) error { _, err := signers.StartCertificateSignature(ctx, c); return err },
+		"Signers.CompleteCertificateSignature": func(c string) error { _, err := signers.CompleteCertificateSignature(ctx, c, nil); return err },
+		"SignerDocuments.GetCurrent":           func(c string) error { _, err := documents.GetCurrent(ctx, "s", c); return err },
+		"SignerDocuments.List":                 func(c string) error { _, err := documents.List(ctx, "s", c, nil); return err },
+		"SignerDocuments.Search":               func(c string) error { _, err := documents.Search(ctx, "s", c, nil); return err },
+		"SignerDocuments.SearchAll":            func(c string) error { _, err := documents.SearchAll(ctx, "s", c, "x"); return err },
+		"SignerDocuments.SignMultiple":         func(c string) error { return documents.SignMultiple(ctx, c, []string{"d"}) },
+		"SignerDocuments.DeclineMultiple":      func(c string) error { return documents.DeclineMultiple(ctx, c, []string{"d"}, "no") },
+		"SignerDocuments.Download":             func(c string) error { _, err := documents.Download(ctx, "s", "d", "original", c); return err },
+		"Assignments.Sign":                     func(c string) error { return assignments.Sign(ctx, "d", "a", c, nil) },
+		"Assignments.Decline":                  func(c string) error { return assignments.Decline(ctx, "d", "a", c, "no") },
+		"Assignments.GetSigningInfo":           func(c string) error { _, err := assignments.GetSigningInfo(ctx, c); return err },
+		"Assignments.GetSigningInfoWithTerms":  func(c string) error { _, err := assignments.GetSigningInfoWithTerms(ctx, c, true); return err },
+		"Fields.Validate":                      func(c string) error { _, err := fields.Validate(ctx, "", "f", c, nil); return err },
+		"Fields.ValidateMultiple":              func(c string) error { _, err := fields.ValidateMultiple(ctx, "", c, nil); return err },
+	}
+	for name, call := range calls {
+		for _, code := range []string{"", " \t"} {
+			if err := call(code); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+				t.Errorf("%s(%q) error = %v, want ErrInvalidInput", name, code, err)
+			}
+		}
+	}
+}

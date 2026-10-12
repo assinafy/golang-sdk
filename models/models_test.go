@@ -357,15 +357,41 @@ func TestRequestModelEncoding(t *testing.T) {
 		}
 	})
 
-	t.Run("public token email", func(t *testing.T) {
-		got, err := json.Marshal(SendDocumentTokenRequest{Email: "person@example.test"})
+	t.Run("public token request", func(t *testing.T) {
+		got, err := json.Marshal(SendDocumentTokenRequest{Email: "ignored@example.test", Recipient: "signer@example.com", Channel: SendTokenChannelEmail})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != `{"email":"person@example.test"}` {
+		if string(got) != `{"recipient":"signer@example.com","channel":"email"}` {
 			t.Fatalf("body = %s", got)
 		}
 	})
+}
+
+func TestPublicDocumentInfoPageCount(t *testing.T) {
+	tests := []struct {
+		name, body, want string
+		wantErr          bool
+	}{
+		{"integer", `{"id":"d","page_count":3}`, "3", false},
+		{"string", `{"id":"d","page_count":"3"}`, "3", false},
+		{"null", `{"id":"d","page_count":null}`, "", false},
+		{"missing", `{"id":"d"}`, "", false},
+		{"object", `{"id":"d","page_count":{}}`, "", true},
+		{"malformed", `{"id":`, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := PublicDocumentInfo{PageCount: "stale"}
+			err := json.Unmarshal([]byte(tt.body), &info)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Unmarshal error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && (info.PageCount != tt.want || info.ID != "d") {
+				t.Fatalf("info = %+v, want page_count %q", info, tt.want)
+			}
+		})
+	}
 }
 
 func TestResponseModelDecoding(t *testing.T) {

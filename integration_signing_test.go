@@ -2,6 +2,7 @@ package assinafy
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -81,6 +82,27 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 	if err := c.PublicDocuments.SendTokenByEmail(ctx, doc.ID, emails[0]); err != nil {
 		t.Fatalf("PublicDocuments.SendTokenByEmail: %v", err)
 	}
+	sent, err := c.PublicDocuments.SendToken(ctx, doc.ID, &models.SendDocumentTokenRequest{Recipient: emails[1]})
+	if err != nil {
+		t.Fatalf("PublicDocuments.SendToken: %v", err)
+	}
+	if sent.Channel != models.SendTokenChannelEmail || sent.Recipient != emails[1] || sent.Document.ID != doc.ID || sent.Document.PageCount == "" {
+		t.Errorf("PublicDocuments.SendToken = %+v", sent)
+	}
+
+	workspaceDocs, err := c.SignerDocuments.ListAsWorkspace(ctx, signerRefs[0].ID, nil)
+	if err != nil {
+		t.Fatalf("SignerDocuments.ListAsWorkspace: %v", err)
+	}
+	if len(workspaceDocs.Data) == 0 || workspaceDocs.Pagination.TotalCount == 0 {
+		t.Errorf("SignerDocuments.ListAsWorkspace = %+v", workspaceDocs)
+	}
+	if _, err := c.SignerDocuments.SearchAsWorkspace(ctx, signerRefs[0].ID, "go-sdk"); err != nil {
+		t.Fatalf("SignerDocuments.SearchAsWorkspace: %v", err)
+	}
+	if _, err := c.SignerDocuments.List(ctx, signerRefs[0].ID, "", nil); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+		t.Errorf("SignerDocuments.List with an empty code = %v, want ErrInvalidInput", err)
+	}
 
 	estimate, err := c.Assignments.EstimateResendCost(ctx, doc.ID, assignment.ID, signerRefs[0].ID)
 	if err != nil {
@@ -101,8 +123,19 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 	}
 
 	future := time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z")
-	if _, err := c.Assignments.ResetExpirationWithRequest(ctx, doc.ID, assignment.ID, models.ResetAssignmentExpirationRequest{ExpiresAt: &future}); err != nil {
+	extended, err := c.Assignments.ResetExpirationWithRequest(ctx, doc.ID, assignment.ID, models.ResetAssignmentExpirationRequest{ExpiresAt: &future})
+	if err != nil {
 		t.Fatalf("Assignments.ResetExpirationWithRequest: %v", err)
+	}
+	if extended.ExpiresAt == nil {
+		t.Error("ResetExpirationWithRequest left expires_at empty")
+	}
+	cleared, err := c.Assignments.ResetExpiration(ctx, doc.ID, assignment.ID, nil)
+	if err != nil {
+		t.Fatalf("Assignments.ResetExpiration(nil): %v", err)
+	}
+	if cleared.ExpiresAt != nil {
+		t.Errorf("ResetExpiration(nil) expires_at = %q, want null", *cleared.ExpiresAt)
 	}
 
 	if _, err := c.Assignments.ListWhatsAppNotifications(ctx, doc.ID, assignment.ID); err != nil {
@@ -229,5 +262,22 @@ func TestIntegrationDocumentUploadAndEstimateCost(t *testing.T) {
 	}
 	if estimate.Documents != 1 {
 		t.Errorf("estimate.Documents = %v, want 1", estimate.Documents)
+	}
+
+	// WhatsApp and certificate verification are priced even when the plan
+	// cannot use them; a plan gate answers 403.
+	for _, method := range []string{models.VerificationMethodWhatsApp, models.VerificationMethodDigitalCertificate} {
+		estimate, err := c.Assignments.EstimateCostWithRequest(ctx, doc.ID, &models.EstimateAssignmentCostRequest{
+			Method:  models.MethodVirtual,
+			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: method, NotificationMethods: []string{models.NotificationMethodWhatsApp}}},
+		})
+		switch {
+		case sdkerrors.IsStatusCode(err, 403):
+			t.Logf("%s estimate is not available on this plan: %v", method, err)
+		case err != nil:
+			t.Errorf("EstimateCostWithRequest(%s): %v", method, err)
+		case estimate.TotalCredits <= 0:
+			t.Errorf("EstimateCostWithRequest(%s) total_credits = %v, want > 0", method, estimate.TotalCredits)
+		}
 	}
 }

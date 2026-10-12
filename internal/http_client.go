@@ -69,7 +69,7 @@ func NewHTTPClient(baseURL, apiKey, token string, timeout time.Duration) *HTTPCl
 					req.Header.Del("X-Api-Key")
 					req.Header.Del("Referer")
 					query := req.URL.Query()
-					query.Del("signer-access-code")
+					query.Del(signerAccessCodeParam)
 					req.URL.RawQuery = query.Encode()
 				}
 				return nil
@@ -116,6 +116,7 @@ type Request struct {
 	noAuth  bool
 	body    any
 	rawBody []byte
+	err     error
 }
 
 // NewRequest creates a Request bound to this client. Path must start with "/".
@@ -150,6 +151,32 @@ func (r *Request) WithoutAuth() *Request {
 	return r
 }
 
+// signerAccessCodeParam is the query parameter that carries a signer access code.
+const signerAccessCodeParam = "signer-access-code"
+
+// WithSignerAccessCode authenticates the request with a signer access code
+// only: the code travels as the signer-access-code query parameter and the
+// client's API key or bearer token is never sent. An empty code fails the
+// request locally with errors.ErrInvalidInput rather than falling back to the
+// workspace credential.
+func (r *Request) WithSignerAccessCode(code string) *Request {
+	r.noAuth = true
+	if err := ValidateSignerAccessCode(code); err != nil {
+		r.err = err
+		return r
+	}
+	r.query.Set(signerAccessCodeParam, code)
+	return r
+}
+
+// ValidateSignerAccessCode rejects an empty or blank signer access code.
+func ValidateSignerAccessCode(code string) error {
+	if strings.TrimSpace(code) == "" {
+		return fmt.Errorf("%w: signer access code is empty", sdkerrors.ErrInvalidInput)
+	}
+	return nil
+}
+
 // WithBody sets a JSON-encoded body.
 func (r *Request) WithBody(body any) *Request {
 	r.body = body
@@ -176,6 +203,9 @@ func (r *Request) Execute(ctx context.Context, result any) (*Response, error) {
 }
 
 func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
 	if err := validatePath(r.path); err != nil {
 		return nil, err
 	}
@@ -294,6 +324,16 @@ func (c *HTTPClient) DownloadUnauthenticated(ctx context.Context, path string, q
 	return c.download(ctx, path, query, true)
 }
 
+// DownloadAsSigner downloads raw bytes authenticated only by a signer access
+// code, never by the client's API key or bearer token. An empty code is
+// rejected with errors.ErrInvalidInput before any request is sent.
+func (c *HTTPClient) DownloadAsSigner(ctx context.Context, path, signerAccessCode string) ([]byte, error) {
+	if err := ValidateSignerAccessCode(signerAccessCode); err != nil {
+		return nil, err
+	}
+	return c.download(ctx, path, map[string]string{signerAccessCodeParam: signerAccessCode}, true)
+}
+
 func (c *HTTPClient) download(ctx context.Context, path string, query map[string]string, noAuth bool) ([]byte, error) {
 	if err := validatePath(path); err != nil {
 		return nil, err
@@ -364,10 +404,10 @@ func redactSignerAccessCode(rawURL string) string {
 		return rawURL
 	}
 	query := u.Query()
-	if _, ok := query["signer-access-code"]; !ok {
+	if _, ok := query[signerAccessCodeParam]; !ok {
 		return rawURL
 	}
-	query.Set("signer-access-code", "REDACTED")
+	query.Set(signerAccessCodeParam, "REDACTED")
 	u.RawQuery = query.Encode()
 	return u.String()
 }

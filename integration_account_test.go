@@ -3,7 +3,9 @@ package assinafy
 import (
 	"bytes"
 	"context"
+	stderrors "errors"
 	"image/png"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -385,5 +387,107 @@ func TestIntegrationWebhookDispatches(t *testing.T) {
 
 	if _, err := c.Webhooks.ListDispatches(ctx, "", &models.WebhookDispatchListParams{PerPage: 5}); err != nil {
 		t.Fatalf("Webhooks.ListDispatches: %v", err)
+	}
+}
+
+// TestIntegrationWebhookEndpoints reads the account's endpoints, then exercises
+// the signing secret on a temporary endpoint. When the plan has no free slot
+// (403), it borrows an existing inactive endpoint that does not sign
+// deliveries, enables signing on it and restores it afterwards, so no live
+// receiver ever sees a changed secret.
+func TestIntegrationWebhookEndpoints(t *testing.T) {
+	c, _ := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	endpoints, err := c.Webhooks.ListEndpoints(ctx, "")
+	if err != nil {
+		t.Fatalf("Webhooks.ListEndpoints: %v", err)
+	}
+	for _, endpoint := range endpoints {
+		got, err := c.Webhooks.GetEndpoint(ctx, "", endpoint.ID)
+		if err != nil {
+			t.Fatalf("Webhooks.GetEndpoint(%s): %v", endpoint.ID, err)
+		}
+		if got.ID != endpoint.ID || got.URL == "" {
+			t.Errorf("Webhooks.GetEndpoint = %+v", got)
+		}
+	}
+
+	inactive := false
+	target, err := c.Webhooks.CreateEndpoint(ctx, "", &models.CreateWebhookEndpointRequest{
+		URL:            "https://example.com/assinafy-go-sdk-" + time.Now().UTC().Format("20060102T150405Z"),
+		Email:          "signer@example.com",
+		Events:         []string{"document_ready"},
+		Name:           "go-sdk-test",
+		IsActive:       &inactive,
+		SigningEnabled: true,
+	})
+	switch {
+	case err == nil:
+		t.Cleanup(func() {
+			if err := c.Webhooks.DeleteEndpoint(context.Background(), "", target.ID); err != nil {
+				t.Errorf("cleanup Webhooks.DeleteEndpoint(%s): %v", target.ID, err)
+			}
+		})
+	case sdkerrors.IsStatusCode(err, 403):
+		t.Logf("no free webhook endpoint slot (%d in use): %v", len(endpoints), err)
+		target = borrowUnsignedEndpoint(ctx, t, c, endpoints)
+	default:
+		t.Fatalf("Webhooks.CreateEndpoint: %v", err)
+	}
+	if !target.SigningEnabled || target.IsActive {
+		t.Fatalf("endpoint under test = %+v, want inactive with signing enabled", target)
+	}
+
+	secret, err := c.Webhooks.GetEndpointSecret(ctx, "", target.ID)
+	if err != nil || !strings.HasPrefix(secret, "whsec_") {
+		t.Fatalf("Webhooks.GetEndpointSecret: whsec_ prefix=%v, %v", strings.HasPrefix(secret, "whsec_"), err)
+	}
+	rotated, err := c.Webhooks.RotateEndpointSecret(ctx, "", target.ID)
+	if err != nil || !strings.HasPrefix(rotated, "whsec_") || rotated == secret {
+		t.Fatalf("Webhooks.RotateEndpointSecret: changed=%v, %v", rotated != secret, err)
+	}
+}
+
+// borrowUnsignedEndpoint enables signing on an inactive endpoint that does not
+// sign deliveries and restores it when the test ends. It skips the test when
+// no such endpoint exists.
+func borrowUnsignedEndpoint(ctx context.Context, t *testing.T, c *Client, endpoints []models.WebhookEndpoint) *models.WebhookEndpoint {
+	t.Helper()
+	for _, endpoint := range endpoints {
+		if endpoint.IsActive || endpoint.SigningEnabled {
+			continue
+		}
+		enabled, disabled := true, false
+		updated, err := c.Webhooks.UpdateEndpoint(ctx, "", endpoint.ID, &models.UpdateWebhookEndpointRequest{SigningEnabled: &enabled})
+		if err != nil {
+			t.Fatalf("Webhooks.UpdateEndpoint(signing_enabled=true): %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := c.Webhooks.UpdateEndpoint(context.Background(), "", endpoint.ID, &models.UpdateWebhookEndpointRequest{SigningEnabled: &disabled}); err != nil {
+				t.Errorf("cleanup Webhooks.UpdateEndpoint(signing_enabled=false): %v", err)
+			}
+		})
+		return updated
+	}
+	t.Skip("no free endpoint slot and no inactive unsigned endpoint to borrow")
+	return nil
+}
+
+// TestIntegrationRateLimitHeaders checks that a failed call carries the
+// X-Rate-Limit-* quota on its APIError.
+func TestIntegrationRateLimitHeaders(t *testing.T) {
+	c, _ := integrationClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err := c.Documents.Get(ctx, "000000000000000000000000000")
+	var apiErr *sdkerrors.APIError
+	if !stderrors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("Documents.Get(missing) = %v, want a 404 APIError", err)
+	}
+	if limit := apiErr.RateLimit(); limit.Limit <= 0 || limit.Reset <= 0 {
+		t.Errorf("RateLimit() = %+v, want the X-Rate-Limit-* headers", limit)
 	}
 }

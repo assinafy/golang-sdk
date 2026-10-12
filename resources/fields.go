@@ -100,74 +100,85 @@ func (r *FieldResource) Delete(ctx context.Context, accountID, fieldID string) e
 	return err
 }
 
-// Validate is the signer-code compatibility form of field validation. It sends
-// ValidateFieldRequest and returns FieldValidationResult; an empty accountID uses
-// the configured default. The current OpenAPI requires client authentication and
-// does not declare signerAccessCode; prefer ValidateAuthenticated for that contract.
+// Validate checks one value against a field definition as the signer holding
+// signerAccessCode. The request carries only that code, never the client's API
+// key or bearer token, and an empty code is rejected with
+// errors.ErrInvalidInput before any request is sent. An empty accountID uses
+// the configured default.
+//
+// Request: {"value": any}. Response data: {"type": string, "success": bool,
+// "error_message": string}.
+//
 // POST /accounts/{account_id}/fields/{field_id}/validate.
 //
-// Deprecated: use ValidateAuthenticated for the documented authentication shape.
+// Deprecated: the API contract authenticates this operation with an API key or
+// bearer token only; use ValidateAuthenticated.
 func (r *FieldResource) Validate(ctx context.Context, accountID, fieldID, signerAccessCode string, body *models.ValidateFieldRequest) (*models.FieldValidationResult, error) {
-	return r.validate(ctx, accountID, fieldID, signerAccessCode, body)
+	return r.validate(ctx, r.validateRequest(accountID, fieldID, body).WithSignerAccessCode(signerAccessCode))
 }
 
-// ValidateAuthenticated sends ValidateFieldRequest using the client's API key or
-// bearer token and returns FieldValidationResult. An empty accountID uses the default.
+// ValidateAuthenticated checks one value against a field definition using the
+// client's API key or bearer token. An empty accountID uses the default.
+//
+// Request: {"value": any}. Response data: {"type": string, "success": bool,
+// "error_message": string}.
+//
 // POST /accounts/{account_id}/fields/{field_id}/validate.
 func (r *FieldResource) ValidateAuthenticated(ctx context.Context, accountID, fieldID string, body *models.ValidateFieldRequest) (*models.FieldValidationResult, error) {
-	return r.validate(ctx, accountID, fieldID, "", body)
+	return r.validate(ctx, r.validateRequest(accountID, fieldID, body))
 }
 
-func (r *FieldResource) validate(ctx context.Context, accountID, fieldID, signerAccessCode string, body *models.ValidateFieldRequest) (*models.FieldValidationResult, error) {
+func (r *FieldResource) validateRequest(accountID, fieldID string, body *models.ValidateFieldRequest) *internal.Request {
 	accountID = resolveAccountID(accountID, r.accountID)
-
-	var out models.FieldValidationResult
 	path := "/accounts/" + url.PathEscape(accountID) + "/fields/" + url.PathEscape(fieldID) + "/validate"
-	req := r.http.NewRequest(http.MethodPost, path).
-		WithQuery("signer-access-code", signerAccessCode).
-		WithBody(body)
-	if signerAccessCode != "" {
-		req.WithoutAuth()
-	}
-	_, err := req.Execute(ctx, &out)
-	if err != nil {
+	return r.http.NewRequest(http.MethodPost, path).WithBody(body)
+}
+
+func (r *FieldResource) validate(ctx context.Context, req *internal.Request) (*models.FieldValidationResult, error) {
+	var out models.FieldValidationResult
+	if _, err := req.Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-// ValidateMultiple is the signer-code compatibility form of bulk validation. It
-// sends ValidateMultipleFieldsRequest values and returns FieldValidationResult
-// values; an empty accountID uses the default. The current OpenAPI requires client
-// authentication; prefer ValidateMultipleAuthenticated for that contract.
+// ValidateMultiple checks several values as the signer holding
+// signerAccessCode. The request carries only that code, never the client's API
+// key or bearer token, and an empty code is rejected with
+// errors.ErrInvalidInput before any request is sent. An empty accountID uses
+// the configured default.
+//
+// Request: [{"field_id": string, "value": any}]. Response data:
+// [{"field_id": string, "type": string, "success": bool, "error_message": string}].
+//
 // POST /accounts/{account_id}/fields/validate-multiple.
 //
-// Deprecated: use ValidateMultipleAuthenticated for the documented authentication shape.
+// Deprecated: the API contract authenticates this operation with an API key or
+// bearer token only; use ValidateMultipleAuthenticated.
 func (r *FieldResource) ValidateMultiple(ctx context.Context, accountID, signerAccessCode string, body []models.ValidateMultipleFieldsRequest) ([]models.FieldValidationResult, error) {
-	return r.validateMultiple(ctx, accountID, signerAccessCode, body)
+	return r.validateMultiple(ctx, r.validateMultipleRequest(accountID, body).WithSignerAccessCode(signerAccessCode))
 }
 
-// ValidateMultipleAuthenticated sends an array of ValidateMultipleFieldsRequest
-// values using the client's API key or bearer token and returns validation
-// results. An empty accountID uses the configured default.
+// ValidateMultipleAuthenticated checks several values using the client's API
+// key or bearer token. An empty accountID uses the configured default.
+//
+// Request: [{"field_id": string, "value": any}]. Response data:
+// [{"field_id": string, "type": string, "success": bool, "error_message": string}].
+//
 // POST /accounts/{account_id}/fields/validate-multiple.
 func (r *FieldResource) ValidateMultipleAuthenticated(ctx context.Context, accountID string, body []models.ValidateMultipleFieldsRequest) ([]models.FieldValidationResult, error) {
-	return r.validateMultiple(ctx, accountID, "", body)
+	return r.validateMultiple(ctx, r.validateMultipleRequest(accountID, body))
 }
 
-func (r *FieldResource) validateMultiple(ctx context.Context, accountID, signerAccessCode string, body []models.ValidateMultipleFieldsRequest) ([]models.FieldValidationResult, error) {
+func (r *FieldResource) validateMultipleRequest(accountID string, body []models.ValidateMultipleFieldsRequest) *internal.Request {
 	accountID = resolveAccountID(accountID, r.accountID)
-
-	var out []models.FieldValidationResult
 	path := "/accounts/" + url.PathEscape(accountID) + "/fields/validate-multiple"
-	req := r.http.NewRequest(http.MethodPost, path).
-		WithQuery("signer-access-code", signerAccessCode).
-		WithBody(nonNil(body))
-	if signerAccessCode != "" {
-		req.WithoutAuth()
-	}
-	_, err := req.Execute(ctx, &out)
-	if err != nil {
+	return r.http.NewRequest(http.MethodPost, path).WithBody(nonNil(body))
+}
+
+func (r *FieldResource) validateMultiple(ctx context.Context, req *internal.Request) ([]models.FieldValidationResult, error) {
+	var out []models.FieldValidationResult
+	if _, err := req.Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

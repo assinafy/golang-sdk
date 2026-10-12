@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrInvalidInput identifies a request rejected locally before any network
@@ -41,6 +42,56 @@ type APIError struct {
 	// Headers contains the HTTP response headers, including Retry-After and
 	// provider request IDs when supplied.
 	Headers http.Header `json:"-"`
+}
+
+// RateLimit is the request quota the API reports in the X-Rate-Limit-* and
+// Retry-After response headers. A header the response did not carry leaves its
+// field at zero.
+type RateLimit struct {
+	// Limit is X-Rate-Limit-Limit: requests allowed in the current window.
+	Limit int
+	// Remaining is X-Rate-Limit-Remaining: requests left in the current window.
+	Remaining int
+	// Reset is X-Rate-Limit-Reset: time until the window resets.
+	Reset time.Duration
+	// RetryAfter is Retry-After, sent with 429 Too Many Requests: how long to
+	// wait before retrying.
+	RetryAfter time.Duration
+}
+
+// RateLimit returns the quota headers of the failed response. On a 429, wait
+// RetryAfter before sending the request again:
+//
+//	var apiErr *errors.APIError
+//	if stderrors.As(err, &apiErr) && apiErr.StatusCode == http.StatusTooManyRequests {
+//		time.Sleep(apiErr.RateLimit().RetryAfter)
+//	}
+func (e *APIError) RateLimit() RateLimit {
+	if e == nil {
+		return RateLimit{}
+	}
+	return ParseRateLimit(e.Headers)
+}
+
+// ParseRateLimit reads the X-Rate-Limit-Limit, X-Rate-Limit-Remaining,
+// X-Rate-Limit-Reset and Retry-After headers. Missing or malformed values are zero.
+func ParseRateLimit(headers http.Header) RateLimit {
+	return RateLimit{
+		Limit:      headerInt(headers, "X-Rate-Limit-Limit"),
+		Remaining:  headerInt(headers, "X-Rate-Limit-Remaining"),
+		Reset:      time.Duration(headerInt(headers, "X-Rate-Limit-Reset")) * time.Second,
+		RetryAfter: time.Duration(headerInt(headers, "Retry-After")) * time.Second,
+	}
+}
+
+// headerInt parses a non-negative integer header, returning 0 when it is
+// missing or malformed.
+func headerInt(headers http.Header, name string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(headers.Get(name)))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // Error formats the API message and status code.

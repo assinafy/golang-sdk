@@ -109,8 +109,7 @@ func (r *SignerResource) Delete(ctx context.Context, accountID, signerID string)
 func (r *SignerResource) GetSelf(ctx context.Context, signerAccessCode string) (*models.Signer, error) {
 	var out models.Signer
 	_, err := r.http.NewRequest(http.MethodGet, "/signers/self").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		Execute(ctx, &out)
 	if err != nil {
 		return nil, err
@@ -141,21 +140,21 @@ func (r *SignerResource) AcceptTermsOnly(ctx context.Context, signerAccessCode s
 
 func (r *SignerResource) acceptTerms(ctx context.Context, signerAccessCode string, out any) error {
 	_, err := r.http.NewRequest(http.MethodPut, "/signers/accept-terms").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		Execute(ctx, out)
 	return err
 }
 
-// VerifyEmail verifies an emailed code and returns an envelope-only success. The
-// signer credential is supplied as the signer-access-code query parameter; only
-// the required verification-code travels in the body.
+// VerifyEmail submits the one-time code sent to the signer by email (Email
+// verification) or WhatsApp (Whatsapp verification) and returns an
+// envelope-only success. The signer credential is supplied as the
+// signer-access-code query parameter; only the required verification-code
+// travels in the body: {"verification-code": string}.
 // POST /verify.
 func (r *SignerResource) VerifyEmail(ctx context.Context, signerAccessCode, verificationCode string) error {
 	body := map[string]string{"verification-code": verificationCode}
 	_, err := r.http.NewRequest(http.MethodPost, "/verify").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, nil)
 	return err
@@ -186,8 +185,7 @@ func (r *SignerResource) ConfirmDataAndGet(ctx context.Context, documentID, sign
 func (r *SignerResource) confirmData(ctx context.Context, documentID, signerAccessCode string, body *models.ConfirmSignerDataRequest, out any) error {
 	path := "/documents/" + url.PathEscape(documentID) + "/signers/confirm-data"
 	_, err := r.http.NewRequest(http.MethodPut, path).
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, out)
 	return err
@@ -234,8 +232,7 @@ func validateSignatureImage(image []byte) error {
 
 func (r *SignerResource) uploadSignature(ctx context.Context, signerAccessCode, signatureType string, reuse *bool, contentType string, image []byte) error {
 	req := r.http.NewRequest(http.MethodPost, "/signature").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithQuery("type", signatureType).
 		WithHeader("Content-Type", contentType).
 		WithRawBody(image)
@@ -267,8 +264,7 @@ func (r *SignerResource) uploadSignature(ctx context.Context, signerAccessCode, 
 func (r *SignerResource) StartCertificateSignature(ctx context.Context, signerAccessCode string) (*models.StartCertificateSignatureResult, error) {
 	var out models.StartCertificateSignatureResult
 	_, err := r.http.NewRequest(http.MethodPost, "/signers/certificate/start").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		Execute(ctx, &out)
 	if err != nil {
 		return nil, err
@@ -289,8 +285,7 @@ func (r *SignerResource) StartCertificateSignature(ctx context.Context, signerAc
 func (r *SignerResource) CompleteCertificateSignature(ctx context.Context, signerAccessCode string, body *models.CompleteCertificateSignatureRequest) (*models.CompleteCertificateSignatureResult, error) {
 	var out models.CompleteCertificateSignatureResult
 	_, err := r.http.NewRequest(http.MethodPost, "/signers/certificate/complete").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, &out)
 	if err != nil {
@@ -303,5 +298,5 @@ func (r *SignerResource) CompleteCertificateSignature(ctx context.Context, signe
 // the requested signature type. A missing saved image produces an API error.
 // GET /signature/{type}.
 func (r *SignerResource) DownloadSignature(ctx context.Context, signerAccessCode, signatureType string) ([]byte, error) {
-	return r.http.DownloadUnauthenticated(ctx, "/signature/"+url.PathEscape(signatureType), map[string]string{"signer-access-code": signerAccessCode})
+	return r.http.DownloadAsSigner(ctx, "/signature/"+url.PathEscape(signatureType), signerAccessCode)
 }

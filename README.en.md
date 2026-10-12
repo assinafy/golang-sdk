@@ -289,7 +289,7 @@ Creating the assignment can dispatch notifications immediately. The response's
 | What has happened to this document? | `client.Documents.Activities(ctx, documentID)` |
 | Did the WhatsApp message go out, and what did it say? | `client.Assignments.ListWhatsAppNotifications(ctx, documentID, assignmentID)` |
 | Can I nudge one signer again? | `client.Assignments.EstimateResendCost(…)` then `client.Assignments.ResendNotification(…)` |
-| The deadline passed — can I extend it? | `client.Assignments.ResetExpirationWithRequest(…)` |
+| The deadline passed — can I extend it? | `client.Assignments.ResetExpirationWithRequest(…)` (a nil `ExpiresAt` removes the deadline) |
 | What is outstanding across the account? | `client.Assignments.List(ctx, params)` |
 
 ### 7. Drive a signer session
@@ -313,6 +313,12 @@ A signer with several pending documents can act on them together through
 `client.SignerDocuments.SignMultiple` and `DeclineMultiple`, and can list or
 search their own documents with `client.SignerDocuments.List` and `SearchAll`.
 Declining a single assignment is `client.Assignments.Decline`.
+
+Every method that takes a signer access code sends only that code, never the API
+key or bearer token, and rejects an empty code with `errors.ErrInvalidInput`
+before any request. To read a signer's documents with the workspace credential,
+call `client.SignerDocuments.ListAsWorkspace` and `SearchAsWorkspace`;
+`DownloadPublic` fetches a signer's artifact with no credential at all.
 
 For virtual assignments the signer must confirm their data before signing, so
 call `ConfirmDataAndGet` ahead of `Sign`. A signer verified by digital
@@ -527,7 +533,7 @@ extension, producing a qualified **PAdES** signature on the document itself.
 
 Three conditions apply. The account needs the Digital Certificate feature
 (Standard and Pro plans). The signer needs a CPF or CNPJ in `government_id`,
-which `client.Signers.Update` sets: a CPF requires that person's own certificate
+which `client.Signers.Create` or `Update` sets: a CPF requires that person's own certificate
 (an e-CPF, or an e-CNPJ naming them as legal representative), and a CNPJ requires
 an e-CNPJ for that company. And each certificate signer must be **alone in their
 signing step**.
@@ -1024,7 +1030,9 @@ case stderrors.Is(err, sdkerrors.ErrInvalidInput):
 
 - `*errors.APIError` — a non-success HTTP response or envelope status. Carries
   `StatusCode`, `Message`, optional `Data`, the response `Headers` (including
-  `Retry-After`), and account-deletion `Restrictions`.
+  `Retry-After`), and account-deletion `Restrictions`. `apiErr.RateLimit()`
+  reads `X-Rate-Limit-Limit`, `X-Rate-Limit-Remaining`, `X-Rate-Limit-Reset` and,
+  on a 429, `Retry-After`.
 - `*errors.NetworkError` — a transport failure. Any `signer-access-code` in the
   URL is redacted before the error is returned.
 - `errors.ErrInvalidInput` — a local rejection: an empty required ID, a

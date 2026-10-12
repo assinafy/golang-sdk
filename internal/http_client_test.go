@@ -195,6 +195,52 @@ func TestHTTPClientOmitsConfiguredAuth(t *testing.T) {
 	}
 }
 
+func TestSignerAccessCodeRequestsNeverCarryWorkspaceCredentials(t *testing.T) {
+	sent := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent++
+		if r.Header.Get("X-Api-Key") != "" || r.Header.Get("Authorization") != "" {
+			t.Errorf("authentication headers = %v", r.Header)
+		}
+		if got := r.URL.Query().Get("signer-access-code"); got != "code-1" {
+			t.Errorf("signer-access-code = %q", got)
+		}
+		if r.URL.Path == "/signature/signature" {
+			_, _ = w.Write([]byte("png"))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":200,"data":null}`))
+	}))
+	defer server.Close()
+
+	for name, client := range map[string]*HTTPClient{
+		"api key":      NewHTTPClient(server.URL, "secret", "", time.Second),
+		"bearer":       NewHTTPClient(server.URL, "", "token", time.Second),
+		"token source": NewHTTPClientWithTokenSource(server.URL, func(context.Context) (string, error) { return "oauth", nil }, time.Second),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			if _, err := client.NewRequest(http.MethodGet, "/signers/self").WithSignerAccessCode("code-1").Execute(ctx, nil); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got, err := client.DownloadAsSigner(ctx, "/signature/signature", "code-1"); err != nil || string(got) != "png" {
+				t.Fatalf("DownloadAsSigner = %q, %v", got, err)
+			}
+			for _, code := range []string{"", "  "} {
+				if _, err := client.NewRequest(http.MethodGet, "/signers/self").WithSignerAccessCode(code).Execute(ctx, nil); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+					t.Errorf("Execute(%q) error = %v", code, err)
+				}
+				if _, err := client.DownloadAsSigner(ctx, "/signature/signature", code); !errors.Is(err, sdkerrors.ErrInvalidInput) {
+					t.Errorf("DownloadAsSigner(%q) error = %v", code, err)
+				}
+			}
+		})
+	}
+	if sent != 6 {
+		t.Errorf("requests sent = %d, want 6", sent)
+	}
+}
+
 func TestHTTPClientRejectsTerminalRedirects(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusFound)

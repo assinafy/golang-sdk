@@ -222,7 +222,7 @@ signer, err := client.Signers.Create(ctx, "", &models.CreateSignerRequest{
 ```
 
 `client.Signers.List`, `Get`, `Update` e `Delete` completam o cadastro.
-`Update` é também onde se grava o `GovernmentID` (CPF ou CNPJ), obrigatório para
+`Create` e `Update` também gravam o `GovernmentID` (CPF ou CNPJ), obrigatório para
 quem vai assinar com certificado digital.
 
 ### 4. Estime o custo
@@ -290,7 +290,7 @@ traz uma URL por signatário no fluxo virtual.
 | O que aconteceu com este documento? | `client.Documents.Activities(ctx, documentID)` |
 | A mensagem de WhatsApp saiu, e o que dizia? | `client.Assignments.ListWhatsAppNotifications(ctx, documentID, assignmentID)` |
 | Dá para lembrar um signatário de novo? | `client.Assignments.EstimateResendCost(…)` e depois `client.Assignments.ResendNotification(…)` |
-| O prazo venceu — dá para estender? | `client.Assignments.ResetExpirationWithRequest(…)` |
+| O prazo venceu — dá para estender? | `client.Assignments.ResetExpirationWithRequest(…)` (`ExpiresAt` nil remove o prazo) |
 | O que está pendente na conta inteira? | `client.Assignments.List(ctx, params)` |
 
 ### 7. Conduza a sessão do signatário
@@ -314,6 +314,12 @@ Um signatário com vários documentos pendentes pode agir em lote por
 `client.SignerDocuments.SignMultiple` e `DeclineMultiple`, e listar ou buscar os
 próprios documentos com `client.SignerDocuments.List` e `SearchAll`. Recusar um
 assignment isolado é `client.Assignments.Decline`.
+
+Todo método que recebe um código de acesso do signatário envia só esse código,
+nunca a chave de API nem o token bearer, e rejeita um código vazio com
+`errors.ErrInvalidInput` antes de qualquer requisição. Para ler os documentos de um
+signatário com a credencial do workspace, use `client.SignerDocuments.ListAsWorkspace`
+e `SearchAsWorkspace`; `DownloadPublic` baixa um artefato do signatário sem credencial.
 
 Em assignments virtuais o signatário precisa confirmar os dados antes de assinar,
 então chame `ConfirmDataAndGet` antes de `Sign`.
@@ -1018,7 +1024,9 @@ case stderrors.Is(err, sdkerrors.ErrInvalidInput):
 
 - `*errors.APIError` — resposta HTTP ou status de envelope de insucesso. Carrega
   `StatusCode`, `Message`, `Data` opcional, os `Headers` da resposta (inclusive
-  `Retry-After`) e as `Restrictions` de exclusão de conta.
+  `Retry-After`) e as `Restrictions` de exclusão de conta. `apiErr.RateLimit()`
+  lê `X-Rate-Limit-Limit`, `X-Rate-Limit-Remaining`, `X-Rate-Limit-Reset` e, num
+  429, `Retry-After`.
 - `*errors.NetworkError` — falha de transporte. Qualquer `signer-access-code` na URL
   é ocultado antes de o erro ser devolvido.
 - `errors.ErrInvalidInput` — rejeição local: um ID obrigatório vazio, um upload que

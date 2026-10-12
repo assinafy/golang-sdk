@@ -193,9 +193,43 @@ func TestDocumentedOperationWireContracts(t *testing.T) {
 			path:          "/signers/signer%2F1/documents/document%2F1/download/certificate-page",
 			responseBytes: []byte("PDF"),
 			call: func(httpClient *internal.HTTPClient) error {
-				got, err := NewSignerDocumentResource(httpClient).Download(ctx, "signer/1", "document/1", "certificate-page", "")
+				got, err := NewSignerDocumentResource(httpClient).DownloadPublic(ctx, "signer/1", "document/1", "certificate-page")
 				if err == nil && !bytes.Equal(got, []byte("PDF")) {
 					return fmt.Errorf("downloaded signer document = %q", got)
+				}
+				return err
+			},
+		},
+		{
+			name: "signer document download with code", method: http.MethodGet,
+			path:          "/signers/signer%2F1/documents/document%2F1/download/pades",
+			query:         url.Values{"signer-access-code": {"sign-code"}},
+			responseBytes: []byte("PDF"),
+			call: func(httpClient *internal.HTTPClient) error {
+				_, err := NewSignerDocumentResource(httpClient).Download(ctx, "signer/1", "document/1", "pades", "sign-code")
+				return err
+			},
+		},
+		{
+			name: "signer documents as workspace", method: http.MethodGet, path: "/signers/signer%2F1/documents", authenticated: true,
+			query:    url.Values{"page": {"2"}, "per-page": {"10"}},
+			response: `{"status":200,"data":[{"id":"document-1"}]}`,
+			call: func(httpClient *internal.HTTPClient) error {
+				got, err := NewSignerDocumentResource(httpClient).ListAsWorkspace(ctx, "signer/1", &models.ListParams{Page: 2, PerPage: 10})
+				if err == nil && (len(got.Data) != 1 || got.Data[0].ID != "document-1") {
+					return fmt.Errorf("decoded workspace signer documents = %+v", got)
+				}
+				return err
+			},
+		},
+		{
+			name: "signer document search as workspace", method: http.MethodGet, path: "/signers/signer%2F1/documents/search", authenticated: true,
+			query:    url.Values{"search": {"contract"}},
+			response: `{"status":200,"data":[{"id":"document-1"}]}`,
+			call: func(httpClient *internal.HTTPClient) error {
+				got, err := NewSignerDocumentResource(httpClient).SearchAsWorkspace(ctx, "signer/1", "contract")
+				if err == nil && (len(got) != 1 || got[0].ID != "document-1") {
+					return fmt.Errorf("decoded workspace signer search = %+v", got)
 				}
 				return err
 			},
@@ -538,7 +572,7 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 			want: []models.FieldType{{Type: "text", Name: "Text"}},
 		},
 		{
-			name: "public document legacy get", method: http.MethodGet, path: "/public/documents/doc%2F1",
+			name: "public document get", method: http.MethodGet, path: "/public/documents/doc%2F1",
 			response: `{"status":200,"data":{"id":"doc/1","name":"Contract","page_count":"1","created_by":"Ada"}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
 				return NewPublicDocumentResource(h).Get(ctx, "doc/1")
@@ -546,13 +580,13 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 			want: &models.PublicDocumentInfo{ID: "doc/1", Name: "Contract", PageCount: "1", CreatedBy: "Ada"},
 		},
 		{
-			name: "public document legacy send token", method: http.MethodPut, path: "/public/documents/doc%2F1/send-token",
-			jsonBody: models.SendDocumentTokenRequest{Recipient: "ada@example.test", Channel: "email"},
-			response: `{"status":200,"data":{"document":{"id":"doc/1","name":"Contract"},"channel":"email","recipient":"ada@example.test"}}`,
+			name: "public document send token", method: http.MethodPut, path: "/public/documents/doc%2F1/send-token",
+			jsonBody: map[string]string{"channel": "email", "recipient": "signer@example.com"},
+			response: `{"status":200,"data":{"document":{"id":"doc/1","name":"Contract","page_count":1},"channel":"email","recipient":"signer@example.com"}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
-				return NewPublicDocumentResource(h).SendToken(ctx, "doc/1", &models.SendDocumentTokenRequest{Recipient: "ada@example.test", Channel: "email"})
+				return NewPublicDocumentResource(h).SendToken(ctx, "doc/1", &models.SendDocumentTokenRequest{Recipient: "signer@example.com"})
 			},
-			want: &models.SendDocumentTokenResult{Document: models.PublicDocumentInfo{ID: "doc/1", Name: "Contract"}, Channel: "email", Recipient: "ada@example.test"},
+			want: &models.SendDocumentTokenResult{Document: models.PublicDocumentInfo{ID: "doc/1", Name: "Contract", PageCount: "1"}, Channel: "email", Recipient: "signer@example.com"},
 		},
 		{
 			name: "signer list", method: http.MethodGet, path: "/accounts/acc%2F1/signers", authenticated: true,
@@ -562,6 +596,19 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 				return NewSignerResource(h, "acc/1").List(ctx, "", &models.ListParams{Page: 2, PerPage: 5, Search: "ada"})
 			},
 			want: &models.PaginatedResult[models.Signer]{Data: []models.Signer{{ID: "signer-1", FullName: "Ada"}}},
+		},
+		{
+			name: "signer create", method: http.MethodPost, path: "/accounts/acc%2F1/signers", authenticated: true,
+			jsonBody: map[string]string{"full_name": "Ada", "email": "signer@example.com", "government_id": "39053344705"},
+			response: `{"status":200,"data":{"resource":"signer","id":"signer-1","full_name":"Ada","email":"signer@example.com","whatsapp_phone_number":null,"government_id":"39053344705","has_accepted_terms":false}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				email, governmentID := "signer@example.com", "39053344705"
+				return NewSignerResource(h, "acc/1").Create(ctx, "", &models.CreateSignerRequest{FullName: "Ada", Email: &email, GovernmentID: &governmentID})
+			},
+			want: func() *models.Signer {
+				email, governmentID := "signer@example.com", "39053344705"
+				return &models.Signer{Resource: "signer", ID: "signer-1", FullName: "Ada", Email: &email, GovernmentID: &governmentID}
+			}(),
 		},
 		{
 			name: "signer update", method: http.MethodPut,

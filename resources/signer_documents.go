@@ -9,9 +9,13 @@ import (
 	"github.com/assinafy/golang-sdk/models"
 )
 
-// SignerDocumentResource exposes signer-facing document endpoints. Most methods
-// authenticate with a signer access code rather than a client credential; Download
-// is public in the current OpenAPI. All follow the package-level error contract.
+// SignerDocumentResource exposes signer-facing document endpoints.
+//
+// Methods that take a signerAccessCode authenticate with that code alone: the
+// client's API key or bearer token is never sent with them, and an empty code
+// is rejected with errors.ErrInvalidInput before any request is made. Workspace
+// access to a signer's documents goes through the explicit ListAsWorkspace and
+// SearchAsWorkspace methods, and DownloadPublic needs no credential at all.
 type SignerDocumentResource struct {
 	http *internal.HTTPClient
 }
@@ -21,14 +25,14 @@ func NewSignerDocumentResource(httpClient *internal.HTTPClient) *SignerDocumentR
 	return &SignerDocumentResource{http: httpClient}
 }
 
-// GetCurrent authenticates with signerAccessCode and returns the signer's current
-// Document payload. An invalid or expired code produces an API error.
+// GetCurrent authenticates with signerAccessCode and returns the Document the
+// signer is currently signing. An invalid or expired code produces an API error.
+//
 // GET /signers/{signer_id}/document.
 func (r *SignerDocumentResource) GetCurrent(ctx context.Context, signerID, signerAccessCode string) (*models.Document, error) {
 	var out models.Document
 	_, err := r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/document").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		Execute(ctx, &out)
 	if err != nil {
 		return nil, err
@@ -36,22 +40,35 @@ func (r *SignerDocumentResource) GetCurrent(ctx context.Context, signerID, signe
 	return &out, nil
 }
 
-// List authenticates with signerAccessCode and returns accessible Document
-// payloads with X-Pagination metadata. Page and per-page are documented;
-// populated shared search, sort, status, and method fields are compatibility
-// queries.
+// List authenticates with signerAccessCode and returns the Documents the signer
+// can access, with X-Pagination metadata. Page and per-page are documented;
+// populated search, sort, status and method fields are sent as well.
+//
 // GET /signers/{signer_id}/documents.
 func (r *SignerDocumentResource) List(ctx context.Context, signerID, signerAccessCode string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
-	var out []models.Document
-	req := r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/documents").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode)
+	return r.list(ctx, r.listRequest(signerID).WithSignerAccessCode(signerAccessCode), params)
+}
+
+// ListAsWorkspace returns the Documents of one of the workspace's signers using
+// the client's API key or bearer token, with X-Pagination metadata. It sends
+// the same query parameters as List.
+//
+// GET /signers/{signer_id}/documents.
+func (r *SignerDocumentResource) ListAsWorkspace(ctx context.Context, signerID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
+	return r.list(ctx, r.listRequest(signerID), params)
+}
+
+func (r *SignerDocumentResource) listRequest(signerID string) *internal.Request {
+	return r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/documents")
+}
+
+func (r *SignerDocumentResource) list(ctx context.Context, req *internal.Request, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
 	applyListParams(req, params)
 	if params != nil {
 		req.WithQuery("status", params.Status)
 		req.WithQuery("method", params.Method)
 	}
-
+	var out []models.Document
 	resp, err := req.Execute(ctx, &out)
 	if err != nil {
 		return nil, err
@@ -62,12 +79,13 @@ func (r *SignerDocumentResource) List(ctx context.Context, signerID, signerAcces
 // Search returns the documents accessible to a signer that match
 // params.Search, authenticated by signerAccessCode and returned with
 // X-Pagination metadata. Other generic pagination parameters are also sent.
+//
 // GET /signers/{signer_id}/documents/search.
 //
 // Deprecated: use SearchAll for the documented query and non-paginated result.
 func (r *SignerDocumentResource) Search(ctx context.Context, signerID, signerAccessCode string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
 	var out []models.Document
-	req := r.newSearchRequest(signerID, signerAccessCode)
+	req := r.searchRequest(signerID).WithSignerAccessCode(signerAccessCode)
 	applyListParams(req, params)
 
 	resp, err := req.Execute(ctx, &out)
@@ -77,43 +95,53 @@ func (r *SignerDocumentResource) Search(ctx context.Context, signerID, signerAcc
 	return paginated(out, resp), nil
 }
 
-// SearchAll authenticates with signerAccessCode and returns all Document payloads
-// matching search using only the query parameter documented for this endpoint.
-// GET /signers/{signer_id}/documents/search.
+// SearchAll authenticates with signerAccessCode and returns every Document the
+// signer can access that matches search.
+//
+// GET /signers/{signer_id}/documents/search?search={search}.
 func (r *SignerDocumentResource) SearchAll(ctx context.Context, signerID, signerAccessCode, search string) ([]models.Document, error) {
+	return r.search(ctx, r.searchRequest(signerID).WithSignerAccessCode(signerAccessCode), search)
+}
+
+// SearchAsWorkspace returns every Document of one of the workspace's signers
+// that matches search, using the client's API key or bearer token.
+//
+// GET /signers/{signer_id}/documents/search?search={search}.
+func (r *SignerDocumentResource) SearchAsWorkspace(ctx context.Context, signerID, search string) ([]models.Document, error) {
+	return r.search(ctx, r.searchRequest(signerID), search)
+}
+
+func (r *SignerDocumentResource) searchRequest(signerID string) *internal.Request {
+	return r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/documents/search")
+}
+
+func (r *SignerDocumentResource) search(ctx context.Context, req *internal.Request, search string) ([]models.Document, error) {
 	var out []models.Document
-	_, err := r.newSearchRequest(signerID, signerAccessCode).
-		WithQuery("search", search).
-		Execute(ctx, &out)
-	if err != nil {
+	if _, err := req.WithQuery("search", search).Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (r *SignerDocumentResource) newSearchRequest(signerID, signerAccessCode string) *internal.Request {
-	return r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/documents/search").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode)
-}
-
-// SignMultiple authenticates with signerAccessCode, sends the required
-// document_ids body, signs the eligible documents as a batch, and returns only
-// error, discarding the documented empty data array.
+// SignMultiple authenticates with signerAccessCode and signs the eligible
+// documents as a batch. Request: {"document_ids": [string]}. The response data
+// is an empty array, so only an error is returned.
+//
 // PUT /signers/documents/sign-multiple.
 func (r *SignerDocumentResource) SignMultiple(ctx context.Context, signerAccessCode string, documentIDs []string) error {
 	body := map[string][]string{"document_ids": nonNil(documentIDs)}
 	_, err := r.http.NewRequest(http.MethodPut, "/signers/documents/sign-multiple").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, nil)
 	return err
 }
 
-// DeclineMultiple authenticates with signerAccessCode, sends document_ids and the
-// required decline_reason, rejects the eligible documents, and returns an
-// error-only result after discarding the documented empty data array.
+// DeclineMultiple authenticates with signerAccessCode and declines the eligible
+// documents. Request: {"document_ids": [string], "decline_reason": string},
+// both required. The response data is an empty array, so only an error is
+// returned.
+//
 // PUT /signers/documents/decline-multiple.
 func (r *SignerDocumentResource) DeclineMultiple(ctx context.Context, signerAccessCode string, documentIDs []string, reason string) error {
 	body := map[string]any{
@@ -121,21 +149,34 @@ func (r *SignerDocumentResource) DeclineMultiple(ctx context.Context, signerAcce
 		"decline_reason": reason,
 	}
 	_, err := r.http.NewRequest(http.MethodPut, "/signers/documents/decline-multiple").
-		WithoutAuth().
-		WithQuery("signer-access-code", signerAccessCode).
+		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, nil)
 	return err
 }
 
-// Download returns raw bytes for artifact ("original", "certificated",
-// "certificate-page", "pades", or "bundle"). The current OpenAPI declares this
-// operation public, so pass an empty signerAccessCode; a non-empty value is sent
-// only for compatibility. Unknown documents or artifacts produce API errors.
+// Download returns the raw bytes of artifact ("original", "certificated",
+// "certificate-page", "pades" or "bundle"), sending signerAccessCode and no
+// client credential. An empty code is rejected; use DownloadPublic to call the
+// operation without one.
+//
 // GET /signers/{signer_id}/documents/{document_id}/download/{artifact}.
 func (r *SignerDocumentResource) Download(ctx context.Context, signerID, documentID, artifact, signerAccessCode string) ([]byte, error) {
-	path := "/signers/" + url.PathEscape(signerID) +
+	return r.http.DownloadAsSigner(ctx, signerArtifactPath(signerID, documentID, artifact), signerAccessCode)
+}
+
+// DownloadPublic returns the raw bytes of artifact ("original", "certificated",
+// "certificate-page", "pades" or "bundle") without any credential, as the API
+// contract declares this operation public. Unknown documents or artifacts
+// produce API errors.
+//
+// GET /signers/{signer_id}/documents/{document_id}/download/{artifact}.
+func (r *SignerDocumentResource) DownloadPublic(ctx context.Context, signerID, documentID, artifact string) ([]byte, error) {
+	return r.http.DownloadUnauthenticated(ctx, signerArtifactPath(signerID, documentID, artifact), nil)
+}
+
+func signerArtifactPath(signerID, documentID, artifact string) string {
+	return "/signers/" + url.PathEscape(signerID) +
 		"/documents/" + url.PathEscape(documentID) +
 		"/download/" + url.PathEscape(artifact)
-	return r.http.DownloadUnauthenticated(ctx, path, map[string]string{"signer-access-code": signerAccessCode})
 }

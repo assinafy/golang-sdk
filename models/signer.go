@@ -12,8 +12,12 @@ type Signer struct {
 	FullName string `json:"full_name"`
 	// Email is the nullable signer email address.
 	Email *string `json:"email,omitempty"`
-	// WhatsAppPhoneNumber is the nullable signer WhatsApp telephone number.
+	// WhatsAppPhoneNumber is the nullable signer WhatsApp telephone number in E.164.
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
+	// GovernmentID is the signer's nullable normalized CPF (11 digits) or CNPJ
+	// (14 characters, possibly alphanumeric). DigitalCertificate verification
+	// requires it to match the signer's certificate.
+	GovernmentID *string `json:"government_id,omitempty"`
 	// HasAcceptedTerms reports whether the signer accepted Assinafy's terms.
 	HasAcceptedTerms bool `json:"has_accepted_terms"`
 	// HasSignature reports whether GET /signers/self found a saved signature.
@@ -62,6 +66,9 @@ type CreateSignerRequest struct {
 	Email *string `json:"email,omitempty"`
 	// WhatsAppPhoneNumber is an optional E.164 telephone number; nil omits it.
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
+	// GovernmentID is an optional CPF or CNPJ, required later for
+	// DigitalCertificate verification; nil omits it.
+	GovernmentID *string `json:"government_id,omitempty"`
 }
 
 // UpdateSignerRequest is the body for PUT /accounts/{id}/signers/{sid}.

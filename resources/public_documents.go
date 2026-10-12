@@ -2,7 +2,7 @@ package resources
 
 import (
 	"context"
-	stderrors "errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -55,57 +55,60 @@ func (r *PublicDocumentResource) get(ctx context.Context, documentID string, out
 	return err
 }
 
-// SendToken sends the legacy SendDocumentTokenRequest without a client credential,
-// triggers token delivery, and decodes the legacy SendDocumentTokenResult.
-// PUT /public/documents/{document_id}/send-token.
+// SendToken sends a one-time access token to a signer of a public document so
+// they can view it, without a client credential, and returns the delivery
+// result. The document must be pending signature and the recipient must be a
+// signer who has not signed yet.
 //
-// Deprecated: use SendTokenWithRequest or SendTokenByEmail for the request and
-// envelope-only response documented by the current API contract.
+// Request: {"channel": "email", "recipient": string}, both required; an empty
+// Channel is sent as "email", and Email stands in for an empty Recipient. A nil
+// body, an empty recipient or a channel other than "email" is rejected with
+// errors.ErrInvalidInput before any request is sent.
+//
+// Response data: {"document": {"resource", "id", "name", "page_count",
+// "created_by"}, "channel": string, "recipient": string}.
+//
+// PUT /public/documents/{document_id}/send-token.
 func (r *PublicDocumentResource) SendToken(ctx context.Context, documentID string, body *models.SendDocumentTokenRequest) (*models.SendDocumentTokenResult, error) {
+	if body == nil {
+		return nil, fmt.Errorf("%w: send-token body is nil", sdkerrors.ErrInvalidInput)
+	}
+	req := models.SendDocumentTokenRequest{Recipient: body.Recipient, Channel: body.Channel}
+	if req.Recipient == "" {
+		req.Recipient = body.Email
+	}
+	if req.Channel == "" {
+		req.Channel = models.SendTokenChannelEmail
+	}
+	if strings.TrimSpace(req.Recipient) == "" {
+		return nil, fmt.Errorf("%w: send-token recipient is empty", sdkerrors.ErrInvalidInput)
+	}
+	if req.Channel != models.SendTokenChannelEmail {
+		return nil, fmt.Errorf("%w: send-token channel %q is not supported; use %q", sdkerrors.ErrInvalidInput, req.Channel, models.SendTokenChannelEmail)
+	}
+
 	var out models.SendDocumentTokenResult
-	err := r.sendToken(ctx, documentID, body, &out)
-	if err != nil {
+	path := "/public/documents/" + url.PathEscape(documentID) + "/send-token"
+	if _, err := r.http.NewRequest(http.MethodPut, path).WithoutAuth().WithBody(req).Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-// SendTokenByEmail sends the required email body without a client credential,
-// triggers access-token delivery, and returns an envelope-only success. Invalid
-// destinations and delivery failures are API errors.
+// SendTokenByEmail sends a one-time access token to the signer whose email is
+// email, as {"channel": "email", "recipient": email}, without a client
+// credential. Use SendToken to read the delivery result.
+//
 // PUT /public/documents/{document_id}/send-token.
 func (r *PublicDocumentResource) SendTokenByEmail(ctx context.Context, documentID, email string) error {
-	return r.SendTokenWithRequest(ctx, documentID, &models.SendDocumentTokenRequest{Email: email})
+	_, err := r.SendToken(ctx, documentID, &models.SendDocumentTokenRequest{Recipient: email})
+	return err
 }
 
-// SendTokenWithRequest triggers token delivery with the current optional
-// request body. Pass nil to omit the body entirely. For older sandbox
-// compatibility, an email-bearing request retries with recipient/channel only
-// after a 400 response whose message mentions channel.
+// SendTokenWithRequest behaves like SendToken but returns only the error.
+//
 // PUT /public/documents/{document_id}/send-token.
 func (r *PublicDocumentResource) SendTokenWithRequest(ctx context.Context, documentID string, body *models.SendDocumentTokenRequest) error {
-	if body == nil {
-		return r.sendToken(ctx, documentID, nil, nil)
-	}
-	err := r.sendToken(ctx, documentID, body, nil)
-	var apiErr *sdkerrors.APIError
-	if !stderrors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest ||
-		!strings.Contains(strings.ToLower(apiErr.Message), "channel") || body.Email == "" {
-		return err
-	}
-	// Older sandbox deployments require the former recipient/channel shape.
-	return r.sendToken(ctx, documentID, &models.SendDocumentTokenRequest{
-		Recipient: body.Email,
-		Channel:   "email",
-	}, nil)
-}
-
-func (r *PublicDocumentResource) sendToken(ctx context.Context, documentID string, body, out any) error {
-	path := "/public/documents/" + url.PathEscape(documentID) + "/send-token"
-	req := r.http.NewRequest(http.MethodPut, path).WithoutAuth()
-	if body != nil {
-		req.WithBody(body)
-	}
-	_, err := req.Execute(ctx, out)
+	_, err := r.SendToken(ctx, documentID, body)
 	return err
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAPIError(t *testing.T) {
@@ -17,6 +18,31 @@ func TestAPIError(t *testing.T) {
 	empty := &APIError{StatusCode: 500}
 	if !strings.Contains(empty.Error(), "500") {
 		t.Errorf("expected status code in error, got %q", empty.Error())
+	}
+}
+
+func TestAPIErrorRateLimit(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("X-Rate-Limit-Limit", "120")
+	headers.Set("X-Rate-Limit-Remaining", "0")
+	headers.Set("X-Rate-Limit-Reset", "19")
+	headers.Set("Retry-After", "7")
+	tests := []struct {
+		name string
+		err  *APIError
+		want RateLimit
+	}{
+		{"429 headers", &APIError{StatusCode: 429, Headers: headers}, RateLimit{Limit: 120, Reset: 19 * time.Second, RetryAfter: 7 * time.Second}},
+		{"no headers", &APIError{StatusCode: 429}, RateLimit{}},
+		{"malformed", &APIError{Headers: http.Header{"Retry-After": {"soon"}, "X-Rate-Limit-Limit": {"-1"}}}, RateLimit{}},
+		{"nil error", nil, RateLimit{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.RateLimit(); got != tt.want {
+				t.Errorf("RateLimit() = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }
 
