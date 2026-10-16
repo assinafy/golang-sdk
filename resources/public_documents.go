@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/internal"
-	"github.com/assinafy/golang-sdk/models"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/internal"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // PublicDocumentResource exposes unauthenticated public-document endpoints. Its

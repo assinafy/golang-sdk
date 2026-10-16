@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 func TestTemplatesListEncodesTags(t *testing.T) {

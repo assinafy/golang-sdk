@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/assinafy/golang-sdk/oauth"
+	"github.com/assinafy/golang-sdk/v2/oauth"
 )
 
 func TestIntegrationOAuthDiscovery(t *testing.T) {

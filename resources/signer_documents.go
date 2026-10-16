@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/assinafy/golang-sdk/internal"
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/internal"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // SignerDocumentResource exposes signer-facing document endpoints.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 func TestAccountCreate(t *testing.T) {

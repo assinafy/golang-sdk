@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"strconv"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/internal"
-	"github.com/assinafy/golang-sdk/models"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/internal"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // AssignmentResource exposes authenticated assignment management and

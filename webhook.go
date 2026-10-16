@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/models"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // ErrInvalidWebhookSignature reports a delivery whose Standard Webhooks headers

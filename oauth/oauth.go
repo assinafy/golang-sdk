@@ -73,8 +73,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/internal"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/internal"
 )
 
 // Default endpoints for the Assinafy production environment. The authorization

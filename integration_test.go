@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/models"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // uploadReadyDoc uploads the minimal PDF and polls until the document reaches

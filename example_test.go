@@ -9,10 +9,10 @@ import (
 	"os"
 	"time"
 
-	assinafy "github.com/assinafy/golang-sdk"
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/models"
-	"github.com/assinafy/golang-sdk/oauth"
+	assinafy "github.com/assinafy/golang-sdk/v2"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/models"
+	"github.com/assinafy/golang-sdk/v2/oauth"
 )
 
 func ExampleNewClient() {

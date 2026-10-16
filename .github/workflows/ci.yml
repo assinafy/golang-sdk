@@ -52,7 +52,7 @@ jobs:
           echo "$total" | tee -a "$GITHUB_STEP_SUMMARY"
           percentage=$(awk '{gsub(/%/, "", $3); print $3}' <<< "$total")
           awk -v coverage="$percentage" 'BEGIN { if (coverage < 85) exit 1 }'
-          resource_percentage=$(awk '$1 ~ /^github.com\/assinafy\/golang-sdk\/resources\// { statements += $2; if ($3 > 0) covered += $2 } END { if (statements > 0) printf "%.1f", 100 * covered / statements }' coverage.out)
+          resource_percentage=$(awk '$1 ~ /^github.com\/assinafy\/golang-sdk\/v2\/resources\// { statements += $2; if ($3 > 0) covered += $2 } END { if (statements > 0) printf "%.1f", 100 * covered / statements }' coverage.out)
           echo "resources coverage: ${resource_percentage}%" | tee -a "$GITHUB_STEP_SUMMARY"
           awk -v coverage="$resource_percentage" 'BEGIN { if (coverage < 85) exit 1 }'
           zero_functions=$(go tool cover -func=coverage.out | awk '$3 == "0.0%" { print }')

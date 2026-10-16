@@ -19,7 +19,7 @@
 //
 // # Building an application other people connect
 //
-// Do not ask for their API key. Use the [github.com/assinafy/golang-sdk/oauth]
+// Do not ask for their API key. Use the [github.com/assinafy/golang-sdk/v2/oauth]
 // package, which gives your application a token limited to the scopes one user
 // approved in one workspace, and pass its token source to the client:
 //
@@ -33,7 +33,7 @@
 //
 // Every method returns *errors.APIError for a non-success response,
 // *errors.NetworkError for a transport failure, and a wrapped cause for a local
-// encoding or validation failure. See [github.com/assinafy/golang-sdk/errors]
+// encoding or validation failure. See [github.com/assinafy/golang-sdk/v2/errors]
 // for the retry and missing-scope helpers.
 package assinafy
 
@@ -46,10 +46,10 @@ import (
 	"strings"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
-	"github.com/assinafy/golang-sdk/internal"
-	"github.com/assinafy/golang-sdk/models"
-	"github.com/assinafy/golang-sdk/resources"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
+	"github.com/assinafy/golang-sdk/v2/internal"
+	"github.com/assinafy/golang-sdk/v2/models"
+	"github.com/assinafy/golang-sdk/v2/resources"
 )
 
 var (

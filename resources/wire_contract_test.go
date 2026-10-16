@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/assinafy/golang-sdk/internal"
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/internal"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 func TestDocumentedOperationWireContracts(t *testing.T) {

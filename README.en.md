@@ -3,7 +3,7 @@
 *[Leia em português](README.md) · English*
 
 [![CI](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk)
+[![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk/v2.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 
 Go client for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs). It covers
 all 112 operations in the published OpenAPI description with typed requests,
@@ -53,8 +53,10 @@ formatting, vet, vulnerability, and lint checks on Go 1.27.x.
 ## Installation
 
 ```bash
-go get github.com/assinafy/golang-sdk
+go get github.com/assinafy/golang-sdk/v2
 ```
+
+Version 2 uses `github.com/assinafy/golang-sdk/v2` in `go.mod` and every SDK import.
 
 ## Quick start
 
@@ -70,7 +72,7 @@ import (
 	"log"
 	"os"
 
-	assinafy "github.com/assinafy/golang-sdk"
+	assinafy "github.com/assinafy/golang-sdk/v2"
 )
 
 func main() {
@@ -404,8 +406,8 @@ import (
 	"os"
 	"time"
 
-	assinafy "github.com/assinafy/golang-sdk"
-	"github.com/assinafy/golang-sdk/models"
+	assinafy "github.com/assinafy/golang-sdk/v2"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 func main() {

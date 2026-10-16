@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/assinafy/golang-sdk/internal"
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/internal"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // TemplateResource exposes authenticated account-template read endpoints. Its

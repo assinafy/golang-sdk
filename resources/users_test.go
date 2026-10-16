@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 func TestUserGetSelf(t *testing.T) {

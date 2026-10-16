@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/assinafy/golang-sdk/models"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 // TestIntegrationDocumentDownloads exercises the binary artifact and page

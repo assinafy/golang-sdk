@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
 )
 
 const userAgent = "assinafy-go-sdk"

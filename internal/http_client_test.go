@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

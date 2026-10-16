@@ -3,7 +3,7 @@
 *Português · [Read in English](README.en.md)*
 
 [![CI](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk)
+[![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk/v2.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 
 Cliente Go para a [API Assinafy v1](https://api.assinafy.com.br/v1/docs) — plataforma
 brasileira de assinatura eletrônica de documentos. Cobre as 112 operações da descrição
@@ -54,8 +54,10 @@ verificações de formatação, `vet`, vulnerabilidade e lint no Go 1.27.x.
 ## Instalação
 
 ```bash
-go get github.com/assinafy/golang-sdk
+go get github.com/assinafy/golang-sdk/v2
 ```
+
+A versão 2 usa `github.com/assinafy/golang-sdk/v2` no `go.mod` e em todos os imports do SDK.
 
 ## Início rápido
 
@@ -71,7 +73,7 @@ import (
 	"log"
 	"os"
 
-	assinafy "github.com/assinafy/golang-sdk"
+	assinafy "github.com/assinafy/golang-sdk/v2"
 )
 
 func main() {
@@ -403,8 +405,8 @@ import (
 	"os"
 	"time"
 
-	assinafy "github.com/assinafy/golang-sdk"
-	"github.com/assinafy/golang-sdk/models"
+	assinafy "github.com/assinafy/golang-sdk/v2"
+	"github.com/assinafy/golang-sdk/v2/models"
 )
 
 func main() {
@@ -1214,7 +1216,7 @@ requisição e resposta, em vez de chamadas reais.
 ## Documentação
 
 - **[README.en.md](README.en.md)** — the same guide in English
-- [Go Reference](https://pkg.go.dev/github.com/assinafy/golang-sdk)
+- [Go Reference](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 - [Documentação da API](https://api.assinafy.com.br/v1/docs)
 - [docs/API.md](docs/API.md) — mapa operação a operação e referência de payloads
 

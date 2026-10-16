@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
 )
 
 // newTestConfig points a Config at srv while keeping the production behaviour

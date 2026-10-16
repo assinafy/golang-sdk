@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	sdkerrors "github.com/assinafy/golang-sdk/errors"
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
 )
 
 func sign(t *testing.T, secret string, payload []byte) string {
