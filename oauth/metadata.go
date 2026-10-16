@@ -89,6 +89,7 @@ func (m *ProtectedResourceMetadata) Issuer() string {
 // DiscoverAuthorizationServer fetches the RFC 8414 metadata for issuer, falling
 // back to the OpenID Connect discovery document when the OAuth one is absent.
 // Pass DefaultIssuer for production. A nil httpClient uses a 30-second default.
+// A missing or different metadata issuer returns ErrIssuerMismatch.
 //
 // The metadata and key documents are served only by the authorization server,
 // never by the API host.
@@ -104,10 +105,13 @@ func DiscoverAuthorizationServer(ctx context.Context, issuer string, httpClient 
 	var metadata AuthorizationServerMetadata
 	err := fetchMetadata(ctx, cfg, issuer, authorizationServerPath, &metadata)
 	if err != nil {
-		if fallbackErr := fetchMetadata(ctx, cfg, issuer, openIDConfigurationPath, &metadata); fallbackErr == nil {
-			return &metadata, nil
+		metadata = AuthorizationServerMetadata{}
+		if fallbackErr := fetchMetadata(ctx, cfg, issuer, openIDConfigurationPath, &metadata); fallbackErr != nil {
+			return nil, err
 		}
-		return nil, err
+	}
+	if metadata.Issuer != issuer {
+		return nil, ErrIssuerMismatch
 	}
 	return &metadata, nil
 }

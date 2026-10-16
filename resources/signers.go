@@ -117,6 +117,41 @@ func (r *SignerResource) GetSelf(ctx context.Context, signerAccessCode string) (
 	return &out, nil
 }
 
+// GetIdentityVerification authenticates only with signerAccessCode and returns
+// the identity-document state. CanStart permits a first session or replacing an
+// Expired one. InReview permits signing but holds certification for account
+// review. Declined or Abandoned requires a new document and assignment.
+// GET /signers/identity-verification.
+func (r *SignerResource) GetIdentityVerification(ctx context.Context, signerAccessCode string) (*models.IdentityVerificationStatus, error) {
+	var out models.IdentityVerificationStatus
+	_, err := r.http.NewRequest(http.MethodGet, "/signers/identity-verification").
+		WithSignerAccessCode(signerAccessCode).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// StartIdentityVerification authenticates only with signerAccessCode, records
+// explicit biometric-processing consent and returns a hosted capture session.
+// Nil or false consent wraps errors.ErrInvalidInput before any request.
+// A session can start only before one exists or after it
+// Expired; any other state produces a 400 APIError. Restarting an expired
+// session incurs no additional charge. Preserve the returned URL's fragment.
+// POST /signers/identity-verification.
+func (r *SignerResource) StartIdentityVerification(ctx context.Context, signerAccessCode string, body *models.StartIdentityVerificationRequest) (*models.IdentityVerificationSession, error) {
+	if body == nil || !body.Consent {
+		return nil, fmt.Errorf("%w: explicit biometric-processing consent is required", sdkerrors.ErrInvalidInput)
+	}
+	var out models.IdentityVerificationSession
+	_, err := r.http.NewRequest(http.MethodPost, "/signers/identity-verification").
+		WithSignerAccessCode(signerAccessCode).WithBody(body).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // AcceptTerms authenticates with signerAccessCode and records terms acceptance.
 // It retains the legacy Signer result; the current contract has no data payload,
 // so the returned Signer can be zero-valued.

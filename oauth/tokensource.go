@@ -70,8 +70,9 @@ type refreshCall struct {
 // token and never sends the retired one again. Until a save succeeds the
 // renewed token exists only in this process: if it exits first, your storage
 // still holds the retired token and the user must connect again. Save to
-// durable storage, and treat a failed save as an incident. A nil onRefresh is
-// allowed only when the token carries no refresh token.
+// durable storage, and treat a failed save as an incident. A nil onRefresh keeps
+// rotated tokens only in memory; a process exit then requires reconnection if
+// storage still holds the retired refresh token.
 func NewTokenSource(config *Config, token *Token, onRefresh func(*Token) error) *TokenSource {
 	var save func(context.Context, *Token) error
 	if onRefresh != nil {

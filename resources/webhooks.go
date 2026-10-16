@@ -10,8 +10,9 @@ import (
 	"github.com/assinafy/golang-sdk/models"
 )
 
-// WebhookResource exposes authenticated webhook subscription and delivery-history
-// endpoints. Its methods follow the package-level account and error contract.
+// WebhookResource exposes authenticated webhook endpoints, signing secrets,
+// subscriptions, and delivery history. Its methods follow the package-level
+// account and error contract.
 type WebhookResource struct {
 	http      *internal.HTTPClient
 	accountID string
@@ -150,8 +151,16 @@ func (r *WebhookResource) endpointPath(accountID, endpointID, suffix string) str
 // default for an empty accountID.
 // GET /accounts/{account_id}/webhooks/endpoints.
 func (r *WebhookResource) ListEndpoints(ctx context.Context, accountID string) ([]models.WebhookEndpoint, error) {
+	return r.ListEndpointsByURL(ctx, accountID, "")
+}
+
+// ListEndpointsByURL returns endpoints whose registered URL matches endpointURL
+// exactly; an empty URL lists all endpoints. OAuth clients need account:read.
+// An empty accountID uses the configured default.
+// GET /accounts/{account_id}/webhooks/endpoints?url={url}.
+func (r *WebhookResource) ListEndpointsByURL(ctx context.Context, accountID, endpointURL string) ([]models.WebhookEndpoint, error) {
 	var out []models.WebhookEndpoint
-	if _, err := r.http.NewRequest(http.MethodGet, r.endpointsPath(accountID)).Execute(ctx, &out); err != nil {
+	if _, err := r.http.NewRequest(http.MethodGet, r.endpointsPath(accountID)).WithQuery("url", endpointURL).Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -159,8 +168,9 @@ func (r *WebhookResource) ListEndpoints(ctx context.Context, accountID string) (
 
 // CreateEndpoint registers a WebhookEndpoint and returns it. Accounts hold one
 // endpoint, or three on paid plans; one past the limit is a 403 APIError and a
-// URL already used by the workspace is a 400. With SigningEnabled, read the new
-// secret with GetEndpointSecret. OAuth clients need the webhooks:write scope.
+// URL already used by the workspace is a 400. With SigningEnabled, the response
+// includes Secret once; store it before use. OAuth clients need webhooks:write
+// and cannot retrieve the secret later.
 // POST /accounts/{account_id}/webhooks/endpoints.
 func (r *WebhookResource) CreateEndpoint(ctx context.Context, accountID string, body *models.CreateWebhookEndpointRequest) (*models.WebhookEndpoint, error) {
 	return r.endpoint(ctx, http.MethodPost, r.endpointsPath(accountID), body)
@@ -186,6 +196,16 @@ func (r *WebhookResource) UpdateEndpoint(ctx context.Context, accountID, endpoin
 // DELETE /accounts/{account_id}/webhooks/endpoints/{endpoint_id}.
 func (r *WebhookResource) DeleteEndpoint(ctx context.Context, accountID, endpointID string) error {
 	_, err := r.http.NewRequest(http.MethodDelete, r.endpointPath(accountID, endpointID, "")).Execute(ctx, nil)
+	return err
+}
+
+// DeleteEndpointByURL stops delivery to the endpoint whose registered URL
+// matches endpointURL exactly and frees its slot. It returns only error;
+// a missing URL produces a 400 APIError and an unknown URL a 404 APIError.
+// OAuth clients need webhooks:write; an empty accountID uses the default.
+// DELETE /accounts/{account_id}/webhooks/endpoints?url={url}.
+func (r *WebhookResource) DeleteEndpointByURL(ctx context.Context, accountID, endpointURL string) error {
+	_, err := r.http.NewRequest(http.MethodDelete, r.endpointsPath(accountID)).WithQuery("url", endpointURL).Execute(ctx, nil)
 	return err
 }
 

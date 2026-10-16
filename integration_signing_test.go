@@ -12,9 +12,9 @@ import (
 	"github.com/assinafy/golang-sdk/models"
 )
 
-// TestIntegrationAssignmentLifecycle exercises the full virtual-assignment flow
-// in a disposable account: create signers, create the assignment, estimate a
-// resend, reset the expiration, and list WhatsApp notifications. It SENDS real
+// TestIntegrationAssignmentLifecycle exercises virtual and collect assignment
+// management in a disposable account: signers, field placements, cost estimates,
+// notifications, and expiration. It SENDS real
 // signature-request emails, so it is opt-in via ASSINAFY_RUN_ASSIGNMENT_TESTS=1.
 func TestIntegrationAssignmentLifecycle(t *testing.T) {
 	if os.Getenv("ASSINAFY_RUN_ASSIGNMENT_TESTS") != "1" {
@@ -141,6 +141,36 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 	if _, err := c.Assignments.ListWhatsAppNotifications(ctx, doc.ID, assignment.ID); err != nil {
 		t.Fatalf("Assignments.ListWhatsAppNotifications: %v", err)
 	}
+	collectDoc := uploadReadyDoc(ctx, t, c, account.ID, false)
+	if len(collectDoc.Pages) == 0 {
+		t.Fatal("metadata-ready document has no pages for collect fields")
+	}
+	field, err := c.Fields.Create(ctx, account.ID, &models.CreateFieldDefinitionRequest{Type: "text", Name: "Approval"})
+	if err != nil {
+		t.Fatalf("Fields.Create for collect: %v", err)
+	}
+	entry := models.AssignmentEntry{PageID: collectDoc.Pages[0].ID, Fields: []models.AssignmentField{{
+		SignerID: signerRefs[0].ID, FieldID: field.ID,
+		DisplaySettings: models.DisplaySettings{Left: 20, Top: 20, Width: 200, Height: 30, FontSize: 12},
+	}}}
+	collectEstimate, err := c.Assignments.EstimateCostWithRequest(ctx, collectDoc.ID, &models.EstimateAssignmentCostRequest{
+		Method: models.MethodCollect, Signers: []models.EstimateAssignmentCostSigner{{}}, Entries: []any{entry},
+	})
+	if err != nil {
+		t.Fatalf("Assignments.EstimateCostWithRequest for collect: %v", err)
+	}
+	if !collectEstimate.HasSufficientResources {
+		t.Fatal("collect estimate has insufficient resources")
+	}
+	collect, err := c.Assignments.Create(ctx, collectDoc.ID, &models.CreateAssignmentRequest{
+		Method: models.MethodCollect, Signers: signerRefs[:1], Entries: []models.AssignmentEntry{entry},
+	})
+	if err != nil {
+		t.Fatalf("Assignments.Create for collect: %v", err)
+	}
+	if collect.Method != models.MethodCollect || len(collect.Items) != 1 || collect.Items[0].Page == nil || collect.Items[0].Page.ID != entry.PageID {
+		t.Error("collect assignment did not retain the placed page field")
+	}
 	if err := c.Accounts.Delete(ctx, account.ID, true); err != nil {
 		t.Fatalf("Accounts.Delete assignment account: %v", err)
 	}
@@ -266,18 +296,21 @@ func TestIntegrationDocumentUploadAndEstimateCost(t *testing.T) {
 
 	// WhatsApp and certificate verification are priced even when the plan
 	// cannot use them; a plan gate answers 403.
-	for _, method := range []string{models.VerificationMethodWhatsApp, models.VerificationMethodDigitalCertificate} {
+	for _, signer := range []models.EstimateAssignmentCostSigner{
+		{VerificationMethod: models.VerificationMethodWhatsApp, NotificationMethods: []string{models.NotificationMethodWhatsApp}},
+		{VerificationMethod: models.VerificationMethodDigitalCertificate, NotificationMethods: []string{models.NotificationMethodEmail}},
+	} {
 		estimate, err := c.Assignments.EstimateCostWithRequest(ctx, doc.ID, &models.EstimateAssignmentCostRequest{
 			Method:  models.MethodVirtual,
-			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: method, NotificationMethods: []string{models.NotificationMethodWhatsApp}}},
+			Signers: []models.EstimateAssignmentCostSigner{signer},
 		})
 		switch {
 		case sdkerrors.IsStatusCode(err, 403):
-			t.Logf("%s estimate is not available on this plan: %v", method, err)
+			t.Logf("%s estimate is not available on this plan: %v", signer.VerificationMethod, err)
 		case err != nil:
-			t.Errorf("EstimateCostWithRequest(%s): %v", method, err)
+			t.Errorf("EstimateCostWithRequest(%s): %v", signer.VerificationMethod, err)
 		case estimate.TotalCredits <= 0:
-			t.Errorf("EstimateCostWithRequest(%s) total_credits = %v, want > 0", method, estimate.TotalCredits)
+			t.Errorf("EstimateCostWithRequest(%s) total_credits = %v, want > 0", signer.VerificationMethod, estimate.TotalCredits)
 		}
 	}
 }

@@ -24,6 +24,17 @@ func TestWebhooksListDispatchesOmitsEmptyEvent(t *testing.T) {
 	}
 }
 
+func TestWebhookEndpointCanClearEvents(t *testing.T) {
+	h, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		checkJSONContract(t, w, r, map[string]any{"events": []string{}})
+		writeJSONResponse(w, `{"status":200,"data":{"id":"endpoint","events":[]}}`)
+	})
+	got, err := NewWebhookResource(h, "account").UpdateEndpoint(context.Background(), "", "endpoint", &models.UpdateWebhookEndpointRequest{Events: []string{}})
+	if err != nil || got == nil || got.Events == nil || len(got.Events) != 0 {
+		t.Fatalf("clear events: result=%v, error=%v", got, err)
+	}
+}
+
 func TestWebhooksListDispatchesDoesNotMutateParams(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -348,11 +348,79 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 		Events: []string{"document_ready"}, IsActive: true, SigningEnabled: true,
 		CreatedAt: "2026-10-01T12:00:00Z", UpdatedAt: "2026-10-01T12:00:00Z",
 	}
+	createdEndpoint := endpoint
+	createdEndpoint.Secret = "whsec_c2VjcmV0"
+	identityStatus := "Pending"
+	captureURL := "https://example.test/capture#t=bearer-link"
 	assignmentBody := models.CreateAssignmentRequest{
 		Method:  models.MethodVirtual,
 		Signers: []models.SignerReference{{ID: "signer-1"}},
 	}
 	tests := []wireCase{
+		{
+			name: "identity verification status", method: http.MethodGet, path: "/signers/identity-verification",
+			query:    url.Values{"signer-access-code": {"sign-code"}},
+			response: `{"status":200,"data":{"can_start":false,"status":"Pending","url":"https://example.test/capture#t=bearer-link","expires_at":"2026-09-09T14:21:03Z","completed_at":null}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewSignerResource(h, "").GetIdentityVerification(ctx, "sign-code")
+			},
+			want: &models.IdentityVerificationStatus{Status: &identityStatus, URL: &captureURL, ExpiresAt: &confirmedAt},
+		},
+		{
+			name: "identity verification start", method: http.MethodPost, path: "/signers/identity-verification",
+			query: url.Values{"signer-access-code": {"sign-code"}}, jsonBody: map[string]any{"consent": true},
+			response: `{"status":200,"data":{"id":"session","url":"https://example.test/capture#t=bearer-link","expires_at":null}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewSignerResource(h, "").StartIdentityVerification(ctx, "sign-code", &models.StartIdentityVerificationRequest{Consent: true})
+			},
+			want: &models.IdentityVerificationSession{ID: "session", URL: captureURL},
+		},
+		{
+			name: "identity review get", method: http.MethodGet, authenticated: true,
+			path:     "/documents/doc%2F1/assignments/asg%2F1/signers/signer%2F1/identity-verification",
+			response: `{"status":200,"data":{"id":"verification","status":"InReview","evidence_available":false,"images":["document_front","face"]}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewAssignmentResource(h).GetIdentityReview(ctx, "doc/1", "asg/1", "signer/1")
+			},
+			want: &models.SignerIdentityReview{ID: "verification", Status: "InReview", Images: []string{"document_front", "face"}},
+		},
+		{
+			name: "identity review image", method: http.MethodGet, authenticated: true,
+			path:          "/documents/doc%2F1/assignments/asg%2F1/signers/signer%2F1/identity-verification/images/document_pdf",
+			responseBytes: []byte("%PDF-1.7\nevidence"),
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewAssignmentResource(h).DownloadIdentityReviewImage(ctx, "doc/1", "asg/1", "signer/1", "document_pdf")
+			},
+			want: []byte("%PDF-1.7\nevidence"),
+		},
+		{
+			name: "identity review decide", method: http.MethodPost, authenticated: true,
+			path:     "/documents/doc%2F1/assignments/asg%2F1/signers/signer%2F1/identity-verification/review",
+			jsonBody: map[string]any{"decision": "Rejected", "note": "Reference"},
+			response: `{"status":200,"data":{"id":"verification","status":"Declined","review_note":"Reference"}}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewAssignmentResource(h).DecideIdentityReview(ctx, "doc/1", "asg/1", "signer/1", &models.DecideIdentityReviewRequest{Decision: models.IdentityReviewDecisionRejected, Note: &fieldName})
+			},
+			want: &models.SignerIdentityReview{ID: "verification", Status: "Declined", ReviewNote: &fieldName},
+		},
+		{
+			name: "webhook list endpoints by URL", method: http.MethodGet,
+			path: "/accounts/acc%2F1/webhooks/endpoints", authenticated: true,
+			query:    url.Values{"url": {"https://example.test/hook?a=1&b=2"}},
+			response: `{"status":200,"data":[]}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return NewWebhookResource(h, "fallback").ListEndpointsByURL(ctx, "acc/1", "https://example.test/hook?a=1&b=2")
+			},
+			want: []models.WebhookEndpoint{},
+		},
+		{
+			name: "webhook delete endpoint by URL", method: http.MethodDelete,
+			path: "/accounts/acc%2F1/webhooks/endpoints", authenticated: true,
+			query: url.Values{"url": {"https://example.test/hook?a=1&b=2"}}, response: `{"status":200,"data":[]}`,
+			call: func(h *internal.HTTPClient) (any, error) {
+				return nil, NewWebhookResource(h, "acc/1").DeleteEndpointByURL(ctx, "", "https://example.test/hook?a=1&b=2")
+			},
+		},
 		{
 			name: "assignment create", method: http.MethodPost, path: "/documents/doc%2F1/assignments", authenticated: true,
 			jsonBody: assignmentBody,
@@ -731,13 +799,13 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 			name: "webhook create endpoint", method: http.MethodPost,
 			path: "/accounts/acc%2F1/webhooks/endpoints", authenticated: true,
 			jsonBody: map[string]any{"url": "https://example.test/hook", "email": "ops@example.test", "events": []string{"document_ready"}, "name": "ERP", "signing_enabled": true},
-			response: `{"status":200,"data":{"id":"ep/1","name":"ERP","url":"https://example.test/hook","email":"ops@example.test","events":["document_ready"],"is_active":true,"signing_enabled":true,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}}`,
+			response: `{"status":200,"data":{"id":"ep/1","name":"ERP","url":"https://example.test/hook","email":"ops@example.test","events":["document_ready"],"is_active":true,"signing_enabled":true,"secret":"whsec_c2VjcmV0","created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
 				return NewWebhookResource(h, "acc/1").CreateEndpoint(ctx, "", &models.CreateWebhookEndpointRequest{
 					URL: "https://example.test/hook", Email: "ops@example.test", Events: []string{"document_ready"}, Name: "ERP", SigningEnabled: true,
 				})
 			},
-			want: &endpoint,
+			want: &createdEndpoint,
 		},
 		{
 			name: "webhook get endpoint", method: http.MethodGet,

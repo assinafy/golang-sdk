@@ -30,6 +30,9 @@ type Signer struct {
 	VerificationMethod *string `json:"verification_method,omitempty"`
 	// NotificationMethods contains API delivery-channel codes on an assignment.
 	NotificationMethods []string `json:"notification_methods,omitempty"`
+	// IdentityVerificationStatus is the nullable identity-document verification
+	// state: Pending, InReview, Approved, Declined, Expired, or Abandoned.
+	IdentityVerificationStatus *string `json:"identity_verification_status,omitempty"`
 	// Completed reports whether this signer completed the assignment. The API
 	// permits null; null and absence both decode to false for source compatibility.
 	Completed bool `json:"completed,omitempty"`

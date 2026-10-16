@@ -103,7 +103,8 @@ const (
 	// ScopeAccountRead reads the workspace's profile, theme and logo.
 	ScopeAccountRead = "account:read"
 	// ScopeWebhooksWrite creates, changes and deletes the workspace webhook
-	// endpoints. Signing secrets are not readable with an OAuth token.
+	// endpoints. A signing secret is returned only at creation; OAuth tokens
+	// cannot retrieve or rotate it later.
 	ScopeWebhooksWrite = "webhooks:write"
 	// ScopeOpenID identifies the authenticated user and enables Config.UserInfo.
 	ScopeOpenID = "openid"
@@ -175,9 +176,9 @@ var (
 	// ErrStateMismatch is returned by Config.ParseCallback when the returned state
 	// is not the one that was sent. The response is not yours; do not use it.
 	ErrStateMismatch = errors.New("assinafy/oauth: callback state does not match")
-	// ErrIssuerMismatch is returned by Config.ParseCallback when the iss parameter
-	// is missing or is not the configured authorization server.
-	ErrIssuerMismatch = errors.New("assinafy/oauth: callback issuer does not match")
+	// ErrIssuerMismatch means a callback's iss or discovery document's issuer
+	// is missing or does not match the requested authorization server.
+	ErrIssuerMismatch = errors.New("assinafy/oauth: authorization server issuer does not match")
 	// ErrNoCode is returned by Config.ParseCallback when the callback carries
 	// neither an authorization code nor an error.
 	ErrNoCode = errors.New("assinafy/oauth: callback carries no authorization code")

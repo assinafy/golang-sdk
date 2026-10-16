@@ -86,9 +86,11 @@ type Client struct {
 	Signers *resources.SignerResource
 	// SignerDocuments provides signer-access-code document and batch-signing operations.
 	SignerDocuments *resources.SignerDocumentResource
-	// Assignments provides authenticated assignment management and signer-facing signing operations.
+	// Assignments provides authenticated assignment management and identity
+	// reviews, plus signer-facing signing operations.
 	Assignments *resources.AssignmentResource
-	// Webhooks provides authenticated subscription and delivery-history operations.
+	// Webhooks provides authenticated endpoint, signing-secret, subscription,
+	// and delivery-history operations.
 	Webhooks *resources.WebhookResource
 	// Templates provides authenticated account-template read operations.
 	Templates *resources.TemplateResource

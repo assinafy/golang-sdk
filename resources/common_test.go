@@ -14,6 +14,7 @@ import (
 
 	sdkerrors "github.com/assinafy/golang-sdk/errors"
 	"github.com/assinafy/golang-sdk/internal"
+	"github.com/assinafy/golang-sdk/models"
 )
 
 func decodeContractBody(t *testing.T, r *http.Request) any {
@@ -153,7 +154,12 @@ func TestSignerAccessCodeMethodsRejectEmptyCode(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\n")
 
 	calls := map[string]func(code string) error{
-		"Signers.GetSelf":                  func(c string) error { _, err := signers.GetSelf(ctx, c); return err },
+		"Signers.GetSelf":                 func(c string) error { _, err := signers.GetSelf(ctx, c); return err },
+		"Signers.GetIdentityVerification": func(c string) error { _, err := signers.GetIdentityVerification(ctx, c); return err },
+		"Signers.StartIdentityVerification": func(c string) error {
+			_, err := signers.StartIdentityVerification(ctx, c, &models.StartIdentityVerificationRequest{Consent: true})
+			return err
+		},
 		"Signers.AcceptTerms":              func(c string) error { _, err := signers.AcceptTerms(ctx, c); return err },
 		"Signers.AcceptTermsOnly":          func(c string) error { return signers.AcceptTermsOnly(ctx, c) },
 		"Signers.VerifyEmail":              func(c string) error { return signers.VerifyEmail(ctx, c, "123456") },

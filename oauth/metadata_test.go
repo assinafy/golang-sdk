@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -27,23 +28,25 @@ const authorizationServerDocument = `{
 
 func TestDiscoverAuthorizationServer(t *testing.T) {
 	var requested []string
+	var issuer string
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		requested = append(requested, r.URL.Path)
 		if r.URL.Path != authorizationServerPath {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = io.WriteString(w, authorizationServerDocument)
+		_, _ = io.WriteString(w, strings.Replace(authorizationServerDocument, DefaultIssuer, issuer, 1))
 	})
 
-	metadata, err := DiscoverAuthorizationServer(context.Background(), srv.URL+"/", srv.Client())
+	issuer = srv.URL + "/"
+	metadata, err := DiscoverAuthorizationServer(context.Background(), issuer, srv.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(requested, []string{authorizationServerPath}) {
 		t.Errorf("requested = %v", requested)
 	}
-	if metadata.Issuer != DefaultIssuer || metadata.JWKSURI == "" {
+	if metadata.Issuer != issuer || metadata.JWKSURI == "" {
 		t.Fatalf("metadata = %+v", metadata)
 	}
 	if !metadata.AuthorizationResponseIssParameterSupported {
@@ -54,7 +57,7 @@ func TestDiscoverAuthorizationServer(t *testing.T) {
 	}
 
 	endpoint := metadata.Endpoint()
-	if endpoint.TokenURL != "https://api.assinafy.com.br/v1/oauth/token" || endpoint.Issuer != DefaultIssuer {
+	if endpoint.TokenURL != "https://api.assinafy.com.br/v1/oauth/token" || endpoint.Issuer != issuer {
 		t.Fatalf("endpoint = %+v", endpoint)
 	}
 	// A Config built from discovery must not fall back to the defaults.
@@ -70,20 +73,22 @@ func TestDiscoverAuthorizationServer(t *testing.T) {
 
 func TestDiscoverAuthorizationServerFallsBackToOpenIDConfiguration(t *testing.T) {
 	var requested []string
+	var issuer string
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		requested = append(requested, r.URL.Path)
 		if r.URL.Path != openIDConfigurationPath {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = io.WriteString(w, authorizationServerDocument)
+		_, _ = io.WriteString(w, strings.Replace(authorizationServerDocument, DefaultIssuer, issuer, 1))
 	})
 
-	metadata, err := DiscoverAuthorizationServer(context.Background(), srv.URL, srv.Client())
+	issuer = srv.URL
+	metadata, err := DiscoverAuthorizationServer(context.Background(), issuer, srv.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadata.Issuer != DefaultIssuer {
+	if metadata.Issuer != issuer {
 		t.Fatalf("metadata = %+v", metadata)
 	}
 	if !reflect.DeepEqual(requested, []string{authorizationServerPath, openIDConfigurationPath}) {
@@ -157,4 +162,31 @@ func (refusingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("discovery aimed at %q, want %q", r.URL.Host, wantHost)
 	}
 	return nil, errors.New("refused")
+}
+
+func TestDiscoveryRequiresTheRequestedIssuer(t *testing.T) {
+	for _, fallback := range []bool{false, true} {
+		for _, document := range []string{`{}`, `{"issuer":"https://other.example"}`} {
+			requests := 0
+			srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if fallback && r.URL.Path == authorizationServerPath {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = io.WriteString(w, document)
+			})
+			got, err := DiscoverAuthorizationServer(context.Background(), srv.URL, srv.Client())
+			if got != nil || !errors.Is(err, ErrIssuerMismatch) {
+				t.Fatalf("fallback=%v result=%v error=%v", fallback, got, err)
+			}
+			want := 1
+			if fallback {
+				want = 2
+			}
+			if requests != want {
+				t.Fatalf("requests=%d want=%d", requests, want)
+			}
+		}
+	}
 }

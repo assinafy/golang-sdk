@@ -517,14 +517,16 @@ func TestVerificationAndNotificationMethodValues(t *testing.T) {
 	// Only matching pairs are accepted by the API; the constants are the exact
 	// codes it enumerates.
 	allowed := map[string][]string{
-		VerificationMethodEmail:              {NotificationMethodEmail},
-		VerificationMethodWhatsApp:           {NotificationMethodWhatsApp},
-		VerificationMethodDigitalCertificate: {NotificationMethodEmail, NotificationMethodWhatsApp},
+		VerificationMethodEmail:                    {NotificationMethodEmail},
+		VerificationMethodWhatsApp:                 {NotificationMethodWhatsApp},
+		VerificationMethodDigitalCertificate:       {NotificationMethodEmail, NotificationMethodWhatsApp},
+		VerificationMethodIDDocumentFaceMatchBasic: {NotificationMethodEmail, NotificationMethodWhatsApp},
 	}
 	want := map[string][]string{
-		"Email":              {"Email"},
-		"Whatsapp":           {"Whatsapp"},
-		"DigitalCertificate": {"Email", "Whatsapp"},
+		"Email":                    {"Email"},
+		"Whatsapp":                 {"Whatsapp"},
+		"DigitalCertificate":       {"Email", "Whatsapp"},
+		"IdDocumentFaceMatchBasic": {"Email", "Whatsapp"},
 	}
 	if !reflect.DeepEqual(allowed, want) {
 		t.Fatalf("method codes = %#v, want %#v", allowed, want)

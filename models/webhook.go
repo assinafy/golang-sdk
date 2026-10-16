@@ -49,6 +49,9 @@ type WebhookEndpoint struct {
 	// SigningEnabled reports whether deliveries carry a Standard Webhooks
 	// webhook-signature header; see WebhookVerifier.VerifyRequest.
 	SigningEnabled bool `json:"signing_enabled"`
+	// Secret is returned only when creating an endpoint with signing enabled.
+	// Store it then: OAuth applications cannot read it again or rotate it.
+	Secret string `json:"secret,omitempty"`
 	// CreatedAt is the endpoint creation date-time.
 	CreatedAt Timestamp `json:"created_at"`
 	// UpdatedAt is the endpoint last-update date-time.
@@ -81,8 +84,9 @@ type UpdateWebhookEndpointRequest struct {
 	URL *string `json:"url,omitempty"`
 	// Email replaces the delivery-failure contact.
 	Email *string `json:"email,omitempty"`
-	// Events replaces the subscribed event codes; nil leaves them unchanged.
-	Events []string `json:"events,omitempty"`
+	// Events replaces the subscribed event codes; nil leaves them unchanged,
+	// while an empty non-nil slice clears the selection.
+	Events []string `json:"events,omitzero"`
 	// Name replaces the label.
 	Name *string `json:"name,omitempty"`
 	// IsActive enables or pauses delivery.

@@ -125,7 +125,7 @@ type EstimateAssignmentCostRequest struct {
 // for one prospective signer. An empty object selects the API's Email defaults.
 type EstimateAssignmentCostSigner struct {
 	// VerificationMethod is optionally "Email", "Whatsapp", or
-	// "DigitalCertificate"; an empty value selects the Email default.
+	// "DigitalCertificate", or "IdDocumentFaceMatchBasic"; empty selects Email.
 	VerificationMethod string `json:"verification_method,omitempty"`
 	// NotificationMethods optionally contains "Email" or "Whatsapp"; an empty
 	// slice selects the Email default.

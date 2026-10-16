@@ -30,6 +30,8 @@ const (
 	StatusRejectedBySigner DocumentStatus = "rejected_by_signer"
 	// StatusPendingSignature means one signature is pending.
 	StatusPendingSignature DocumentStatus = "pending_signature"
+	// StatusPendingIdentityReview means all signers signed and account identity review holds certification.
+	StatusPendingIdentityReview DocumentStatus = "pending_identity_review"
 	// StatusPendingSignatures is a compatibility state for multiple pending signatures.
 	StatusPendingSignatures DocumentStatus = "pending_signatures"
 	// StatusPartiallySigned is a compatibility state for partial completion.

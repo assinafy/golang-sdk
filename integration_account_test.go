@@ -247,6 +247,31 @@ func TestIntegrationAccountAdminLifecycle(t *testing.T) {
 	if err := c.Accounts.DeleteLogo(ctx, account.ID); err != nil {
 		t.Fatalf("Accounts.DeleteLogo: %v", err)
 	}
+	inactive := false
+	endpoint, err := c.Webhooks.CreateEndpoint(ctx, account.ID, &models.CreateWebhookEndpointRequest{
+		URL: "https://example.com/assinafy-go-sdk-webhook", Email: "ops@example.com",
+		Events: []string{"document_ready"}, IsActive: &inactive, SigningEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Webhooks.CreateEndpoint: %v", err)
+	}
+	secret, err := c.Webhooks.GetEndpointSecret(ctx, account.ID, endpoint.ID)
+	if err != nil || !strings.HasPrefix(secret, "whsec_") {
+		t.Fatalf("Webhooks.GetEndpointSecret: has prefix=%v, error=%v", strings.HasPrefix(secret, "whsec_"), err)
+	}
+	if endpoint.Secret != "" && endpoint.Secret != secret {
+		t.Error("creation secret does not equal the endpoint signing secret")
+	}
+	updatedEndpoint, err := c.Webhooks.UpdateEndpoint(ctx, account.ID, endpoint.ID, &models.UpdateWebhookEndpointRequest{Events: []string{}})
+	if err != nil {
+		t.Fatalf("Webhooks.UpdateEndpoint: %v", err)
+	}
+	if updatedEndpoint.Events == nil || len(updatedEndpoint.Events) != 0 {
+		t.Error("empty Events did not clear the endpoint event selection")
+	}
+	if err := c.Webhooks.DeleteEndpoint(ctx, account.ID, endpoint.ID); err != nil {
+		t.Fatalf("Webhooks.DeleteEndpoint: %v", err)
+	}
 	if err := c.Accounts.Delete(ctx, account.ID, false); err != nil {
 		t.Fatalf("Accounts.Delete: %v", err)
 	}

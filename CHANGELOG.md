@@ -5,6 +5,31 @@ All notable changes to the Assinafy Go SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-10-16
+
+### Added
+
+- Identity-document verification with `IdDocumentFaceMatchBasic`: signer status
+  and consent-based capture sessions, account review summaries, evidence image
+  downloads, and approval or rejection decisions, with typed request and response
+  payloads. `StatusPendingIdentityReview` identifies documents awaiting review.
+- `WebhookEndpoint.Secret` retains the signing secret returned when creating a
+  signed endpoint. OAuth applications must store it from that response.
+- `Webhooks.ListEndpointsByURL` and `DeleteEndpointByURL` select an endpoint by
+  its exact registered URL.
+
+### Fixed
+
+- `UpdateWebhookEndpointRequest.Events` sends an empty non-nil slice as `[]` to
+  clear the event selection; nil leaves it unchanged.
+- Certificate verification documentation states the 0.5-credit signature fee
+  plus the notification cost.
+
+### Security
+
+- OAuth discovery rejects a missing or mismatched metadata issuer with
+  `ErrIssuerMismatch` before returning authorization-server endpoints.
+
 ## [1.10.1] - 2026-10-11
 
 ### Added

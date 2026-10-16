@@ -218,6 +218,48 @@ func (r *AssignmentResource) ListWhatsAppNotifications(ctx context.Context, docu
 	return out, nil
 }
 
+// GetIdentityReview uses client API-key or bearer authentication and returns
+// the signer's identity evidence summary for account review. An unavailable
+// verification produces a 404 APIError. Images are available only InReview.
+// GET /documents/{document_id}/assignments/{assignment_id}/signers/{signer_id}/identity-verification.
+func (r *AssignmentResource) GetIdentityReview(ctx context.Context, documentID, assignmentID, signerID string) (*models.SignerIdentityReview, error) {
+	var out models.SignerIdentityReview
+	_, err := r.http.NewRequest(http.MethodGet, identityReviewPath(documentID, assignmentID, signerID)).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DownloadIdentityReviewImage uses client API-key or bearer authentication and
+// returns raw JPEG, PNG or PDF evidence bytes. name must appear in the review's
+// Images (document_front, document_back, document_pdf, face). Images are fetched
+// from the provider only while InReview; once decided the API returns 404.
+// GET /documents/{document_id}/assignments/{assignment_id}/signers/{signer_id}/identity-verification/images/{name}.
+func (r *AssignmentResource) DownloadIdentityReviewImage(ctx context.Context, documentID, assignmentID, signerID, name string) ([]byte, error) {
+	return r.http.Download(ctx, identityReviewPath(documentID, assignmentID, signerID)+"/images/"+url.PathEscape(name), nil)
+}
+
+// DecideIdentityReview sends DecideIdentityReviewRequest using client API-key
+// or bearer authentication and returns the decided review. The verification
+// must be InReview and the document pending_signature or pending_identity_review.
+// Approval releases certification when every signer has signed and no review
+// remains. Rejection cancels the document and notifies signers and copy receivers.
+// POST /documents/{document_id}/assignments/{assignment_id}/signers/{signer_id}/identity-verification/review.
+func (r *AssignmentResource) DecideIdentityReview(ctx context.Context, documentID, assignmentID, signerID string, body *models.DecideIdentityReviewRequest) (*models.SignerIdentityReview, error) {
+	var out models.SignerIdentityReview
+	_, err := r.http.NewRequest(http.MethodPost, identityReviewPath(documentID, assignmentID, signerID)+"/review").WithBody(body).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func identityReviewPath(documentID, assignmentID, signerID string) string {
+	return "/documents/" + url.PathEscape(documentID) + "/assignments/" + url.PathEscape(assignmentID) +
+		"/signers/" + url.PathEscape(signerID) + "/identity-verification"
+}
+
 // GetSigningInfo authenticates with signerAccessCode and returns the signer-facing
 // Document payload without requiring a client credential.
 // GET /sign.

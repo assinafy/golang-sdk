@@ -7,8 +7,8 @@ package models
 // Verification and notification are coupled: send one, both, or neither, and
 // the missing side is inferred. Sending neither defaults both to Email. Only
 // matching pairs are accepted — Email verifies with Email, Whatsapp with
-// Whatsapp, and DigitalCertificate with either — and an invalid pairing is a
-// 400. Only one notification method is allowed per signer.
+// Whatsapp, and DigitalCertificate or IdDocumentFaceMatchBasic with either.
+// An invalid pairing is a 400. Only one notification method is allowed per signer.
 const (
 	// VerificationMethodEmail emails the signer a one-time code to enter before
 	// signing. It is the default and costs nothing.
@@ -25,10 +25,16 @@ const (
 	// plans), a CPF or CNPJ in the signer's government_id, and the signer alone
 	// in their signing step. A CPF requires that person's own certificate — an
 	// e-CPF, or an e-CNPJ naming them as legal representative; a CNPJ requires an
-	// e-CNPJ for that company. It costs 2 credits per signer on top of the
+	// e-CNPJ for that company. It costs 0.5 credits per signer on top of the
 	// notification, charged when the assignment is created and itemized in the
 	// cost breakdown under the SignatureDigitalCertificate code.
 	VerificationMethodDigitalCertificate = "DigitalCertificate"
+	// VerificationMethodIDDocumentFaceMatchBasic verifies a government ID photo,
+	// a photo of the signer holding it, and liveness through a hosted capture
+	// session. It requires the ID Document + Face Match feature and a valid CPF
+	// in government_id. Estimate costs before creating the assignment. An
+	// InReview result allows signing but holds certification for account review.
+	VerificationMethodIDDocumentFaceMatchBasic = "IdDocumentFaceMatchBasic"
 )
 
 // Notification methods for SignerReference.NotificationMethods and its template

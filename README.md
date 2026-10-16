@@ -6,7 +6,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk)
 
 Cliente Go para a [API Assinafy v1](https://api.assinafy.com.br/v1/docs) — plataforma
-brasileira de assinatura eletrônica de documentos. Cobre as 106 operações da descrição
+brasileira de assinatura eletrônica de documentos. Cobre as 112 operações da descrição
 OpenAPI publicada, com requisições e respostas tipadas e um contrato de erro único.
 
 ## Conteúdo
@@ -512,14 +512,15 @@ permitido um método de notificação por signatário.
 | --- | --- | --- | --- |
 | `models.VerificationMethodEmail` *(padrão)* | `Email` | E-mail no signatário | 0 créditos |
 | `models.VerificationMethodWhatsApp` | `Whatsapp` | `whatsapp_phone_number` e assinatura paga | 0,45 crédito |
-| `models.VerificationMethodDigitalCertificate` | `Email` ou `Whatsapp` | Recurso Certificado Digital, e CPF ou CNPJ no `government_id` do signatário | 2 créditos mais a notificação |
+| `models.VerificationMethodDigitalCertificate` | `Email` ou `Whatsapp` | Recurso Certificado Digital, e CPF ou CNPJ no `government_id` do signatário | 0,5 crédito mais a notificação |
+| `models.VerificationMethodIDDocumentFaceMatchBasic` | `Email` ou `Whatsapp` | Recurso ID Document + Face Match e CPF válido em `government_id` | Consulte a estimativa antes do envio |
 
-Nenhum método de verificação é cobrado por si — paga-se pela notificação com a qual
-ele anda junto. Escolher verificação por WhatsApp escolhe também a notificação por
-WhatsApp, e os 0,45 crédito dela. `DigitalCertificate` é a exceção: a assinatura em
-si custa 2 créditos por signatário além da notificação, debitados na criação do
-assignment. `client.Assignments.EstimateCostWithRequest` devolve o total exato antes
-do compromisso, detalhado em `Breakdown`.
+Email e WhatsApp cobram pela notificação: a verificação por WhatsApp também
+seleciona a notificação por WhatsApp e seus 0,45 crédito. A assinatura
+`DigitalCertificate` custa 0,5 crédito por signatário além da notificação.
+`IdDocumentFaceMatchBasic` tem tarifa por signatário. A cobrança ocorre na criação
+do assignment; `client.Assignments.EstimateCostWithRequest` devolve o total exato
+antes do compromisso, detalhado em `Breakdown`.
 
 Uma combinação inválida é recusada com `400`, então use as constantes em vez de
 literais de string.
@@ -573,6 +574,37 @@ Quando o documento fecha, o artefato `pades` carrega as assinaturas qualificadas
 > assinatura da Assinafy usa; `CompleteCertificateSignatureRequest.Extra` envia
 > qualquer campo adicional que uma implantação espere.
 
+### Verificação por documento e reconhecimento facial
+
+`models.VerificationMethodIDDocumentFaceMatchBasic` pede foto do documento, foto
+do signatário segurando-o e prova de vida. Configure esse método na referência do
+signatário, inclusive em modelos, e consulte o custo antes de criar o assignment.
+
+1. Consulte `client.Signers.GetIdentityVerification(ctx, signerAccessCode)`.
+   `CanStart` permite iniciar a primeira sessão ou substituir uma sessão `Expired`.
+2. Obtenha consentimento explícito para o tratamento biométrico e chame
+   `StartIdentityVerification` com `models.StartIdentityVerificationRequest{Consent: true}`.
+   Abra a `URL` retornada sem alterar o fragmento. Esse link é uma credencial:
+   nunca o registre em logs nem o guarde no armazenamento do navegador.
+3. Acompanhe o estado com `GetIdentityVerification`. `InReview` permite confirmar
+   dados, aceitar termos e assinar. `Declined` ou `Abandoned` exige outro documento
+   e assignment; reenviar a notificação não reinicia uma sessão ativa.
+4. A conta consulta `client.Assignments.GetIdentityReview` e, enquanto `InReview`,
+   usa `DownloadIdentityReviewImage` para os nomes retornados em `Images`.
+   `DecideIdentityReview` recebe `models.DecideIdentityReviewRequest` com
+   `IdentityReviewDecisionApproved` ou `IdentityReviewDecisionRejected` e uma nota
+   privada opcional de até 2.000 caracteres. Aprovar libera a certificação quando
+   todos assinaram e não há outras revisões; rejeitar cancela o documento e
+   notifica signatários e destinatários em cópia.
+
+`models.StatusPendingIdentityReview` (`pending_identity_review`) indica que todos
+assinaram e a certificação aguarda a conta. O resumo de evidências não contém
+imagens nem biometria, e as imagens deixam de estar disponíveis após a decisão.
+Os payloads completos estão em [docs/API.md](docs/API.md#identity-verification-payloads).
+
+As rotas de verificação de identidade estão disponíveis em produção; o sandbox
+pode retornar 404 de roteamento para elas.
+
 ## Conectando a conta de outras pessoas com OAuth
 
 Use OAuth quando você constrói um produto que **outros clientes da Assinafy conectam
@@ -589,6 +621,8 @@ aplicação **pública**, que roda no dispositivo do usuário e não guarda segr
 recebe nenhum e se autentica só com PKCE. Aplicações não são criadas pela API.
 
 O pacote `oauth` implementa o fluxo inteiro sobre a biblioteca padrão.
+`oauth.DiscoverAuthorizationServer` valida que o issuer recebido é exatamente o
+solicitado e devolve `oauth.ErrIssuerMismatch` se faltar ou divergir.
 
 **Passo 1 — inicie uma conexão.** Gere um par PKCE e um `state` novos a cada
 tentativa, guarde os dois na sessão do usuário e mande o navegador para a URL com
@@ -900,7 +934,16 @@ endpoint, err := client.Webhooks.CreateEndpoint(ctx, "", &models.CreateWebhookEn
 	Events:         []string{"document_ready", "signer_signed_document"},
 	SigningEnabled: true,
 })
-secret, err := client.Webhooks.GetEndpointSecret(ctx, "", endpoint.ID) // "whsec_…"
+if err != nil {
+	return err
+}
+secret := endpoint.Secret // "whsec_…"
+if secret == "" {
+	secret, err = client.Webhooks.GetEndpointSecret(ctx, "", endpoint.ID)
+	if err != nil {
+		return err
+	}
+}
 ```
 
 Criar um endpoint além do limite do plano gera `APIError` `403`, e uma URL que outro
@@ -908,7 +951,11 @@ endpoint da conta já usa gera `400`. `ListEndpoints`, `GetEndpoint`, `UpdateEnd
 (só os campos não nulos mudam) e `DeleteEndpoint` os administram.
 `RotateEndpointSecret` troca o segredo, e o anterior deixa de valer na hora; publique
 o novo segredo antes de girar outra vez. Aplicativos OAuth não leem nem giram
-segredos. Guarde o segredo como qualquer outra credencial.
+segredos após a criação. Persista `endpoint.Secret` antes de usar o endpoint. Se
+um aplicativo OAuth perder esse segredo, exclua o endpoint e crie outro. Uma chave
+de API ou token de usuário permite recuperá-lo com `GetEndpointSecret`.
+`ListEndpointsByURL` filtra a URL exata e `DeleteEndpointByURL` exclui por essa URL.
+Em `UpdateEndpoint`, `Events: []string{}` limpa a seleção; `nil` a mantém.
 
 `GetSubscription`, `UpdateSubscription` e `Inactivate` agem sobre o endpoint mais
 antigo e atendem contas com um só; `UpdateSubscription` o cria quando não existe e
@@ -1076,18 +1123,18 @@ oficial. Também expande todos os modelos de resposta, campo a campo.
 | Área | Operações | Recurso do SDK |
 | --- | ---: | --- |
 | Contas | 10 | `client.Accounts` |
-| Assignments | 7 | `client.Assignments` |
+| Assignments | 10 | `client.Assignments` |
 | Autenticação | 10 | `client.Authentication` |
 | Documentos | 18 | `client.Documents` |
 | Campos | 8 | `client.Fields` |
 | OAuth | 4 | pacote `oauth` |
 | Signatários | 5 | `client.Signers` |
-| Assinatura | 17 | `client.PublicDocuments`, `client.Signers`, `client.Assignments`, `client.SignerDocuments` |
+| Assinatura | 19 | `client.PublicDocuments`, `client.Signers`, `client.Assignments`, `client.SignerDocuments` |
 | Etiquetas | 4 | `client.Tags` |
 | Modelos | 1 | `client.Templates` |
 | Usuários | 9 | `client.Users` |
-| Webhooks | 13 | `client.Webhooks` |
-| **Total** | **106** | |
+| Webhooks | 14 | `client.Webhooks` |
+| **Total** | **112** | |
 
 Além dessas operações o SDK também expõe `Client.UploadAndRequestSignatures`,
 `client.Templates.Get` (uma leitura de modelo único que a referência não lista como

@@ -33,8 +33,8 @@ type WebhookVerifier struct {
 }
 
 // NewWebhookVerifier creates a WebhookVerifier bound to an endpoint's signing
-// secret, as returned by WebhookResource.GetEndpointSecret ("whsec_" followed by
-// the base64 key).
+// secret, returned by WebhookResource.CreateEndpoint in WebhookEndpoint.Secret
+// or by GetEndpointSecret ("whsec_" followed by the base64 key).
 func NewWebhookVerifier(secret string) *WebhookVerifier {
 	return &WebhookVerifier{secret: []byte(secret)}
 }
