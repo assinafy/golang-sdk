@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strconv"
 
+	sdkerrors "github.com/assinafy/golang-sdk/v2/errors"
 	"github.com/assinafy/golang-sdk/v2/internal"
 	"github.com/assinafy/golang-sdk/v2/models"
 )
@@ -38,6 +39,13 @@ func nonNil[T any](values []T) []T {
 		return []T{}
 	}
 	return values
+}
+
+func requireVirtualDigitalCertificate(method models.AssignmentMethod, verificationMethod string) error {
+	if verificationMethod == models.VerificationMethodDigitalCertificate && method != models.MethodVirtual {
+		return sdkerrors.ErrDigitalCertificateRequiresVirtual
+	}
+	return nil
 }
 
 func applyListParams(req *internal.Request, params *models.ListParams) {

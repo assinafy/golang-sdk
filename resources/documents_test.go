@@ -180,6 +180,55 @@ func TestCreateFromTemplateDoesNotMutateOptions(t *testing.T) {
 	}
 }
 
+func TestTemplateDigitalCertificateRequiresVirtualMethod(t *testing.T) {
+	for _, operation := range []string{"create", "estimate"} {
+		t.Run(operation, func(t *testing.T) {
+			requests := 0
+			httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.Method != http.MethodGet || r.URL.EscapedPath() != "/accounts/acc1/templates/template1" {
+					t.Errorf("request = %s %s, want template detail", r.Method, r.URL.EscapedPath())
+				}
+				writeJSONResponse(w, `{"status":200,"data":{"id":"template1","name":"placed","status":"ready","roles":[],"tags":[],"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","pages":[{"id":"p1","number":1,"height":100,"width":100,"download_url":"https://example.test/p1","fields":[{"id":"placement1","field_id":"field1","role_id":"role1","label":"Sign","created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z"}]}]}}`)
+			})
+			r := NewDocumentResource(httpClient, "acc1")
+			signers := []models.TemplateSigner{{RoleID: "role1", ID: "signer1", VerificationMethod: models.VerificationMethodDigitalCertificate}}
+			var err error
+			if operation == "create" {
+				_, err = r.CreateFromTemplate(context.Background(), "", "template1", signers, nil)
+			} else {
+				_, err = r.EstimateCostFromTemplate(context.Background(), "", "template1", signers)
+			}
+			if !errors.Is(err, sdkerrors.ErrDigitalCertificateRequiresVirtual) || requests != 1 {
+				t.Errorf("err = %v, requests = %d, want local certificate error after one template read", err, requests)
+			}
+		})
+	}
+}
+
+func TestVirtualTemplateAllowsDigitalCertificate(t *testing.T) {
+	requests := 0
+	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch requests {
+		case 1:
+			writeJSONResponse(w, `{"status":200,"data":{"id":"template1","name":"virtual","status":"ready","roles":[],"tags":[],"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","pages":[]}}`)
+		case 2:
+			if r.Method != http.MethodPost || r.URL.EscapedPath() != "/accounts/acc1/templates/template1/documents/estimate-cost" {
+				t.Errorf("request = %s %s", r.Method, r.URL.EscapedPath())
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"documents":1,"credits":1}}`)
+		}
+	})
+	r := NewDocumentResource(httpClient, "acc1")
+	result, err := r.EstimateCostFromTemplate(context.Background(), "", "template1", []models.TemplateSigner{{
+		RoleID: "role1", VerificationMethod: models.VerificationMethodDigitalCertificate,
+	}})
+	if err != nil || result.Documents != 1 || requests != 2 {
+		t.Fatalf("result = %+v, err = %v, requests = %d", result, err, requests)
+	}
+}
+
 func TestDocumentTagsReplaceSendsNames(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut || r.URL.Path != "/accounts/acc1/documents/d1/tags" {

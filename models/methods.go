@@ -25,9 +25,10 @@ const (
 	// plans), a CPF or CNPJ in the signer's government_id, and the signer alone
 	// in their signing step. A CPF requires that person's own certificate — an
 	// e-CPF, or an e-CNPJ naming them as legal representative; a CNPJ requires an
-	// e-CNPJ for that company. It costs 0.5 credits per signer on top of the
-	// notification, charged when the assignment is created and itemized in the
-	// cost breakdown under the SignatureDigitalCertificate code.
+	// e-CNPJ for that company. The assignment method must be MethodVirtual. It
+	// costs 0.5 credits per signer on top of the notification, charged when the
+	// assignment is created and itemized in the cost breakdown under the
+	// SignatureDigitalCertificate code.
 	VerificationMethodDigitalCertificate = "DigitalCertificate"
 	// VerificationMethodIDDocumentFaceMatchBasic verifies a government ID photo,
 	// a photo of the signer holding it, and liveness through a hosted capture

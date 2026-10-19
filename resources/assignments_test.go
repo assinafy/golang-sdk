@@ -15,12 +15,12 @@ import (
 )
 
 func TestAssignmentContractMethods(t *testing.T) {
-	t.Run("estimate request has no signer id", func(t *testing.T) {
+	t.Run("virtual certificate estimate has no signer id", func(t *testing.T) {
 		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost || r.URL.Path != "/documents/d1/assignments/estimate-cost" {
 				t.Errorf("request = %s %s", r.Method, r.URL.Path)
 			}
-			want := map[string]any{"method": "virtual", "signers": []any{map[string]any{}}}
+			want := map[string]any{"method": "virtual", "signers": []any{map[string]any{"verification_method": "DigitalCertificate"}}}
 			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
 				t.Errorf("body = %#v, want %#v", got, want)
 			}
@@ -28,7 +28,7 @@ func TestAssignmentContractMethods(t *testing.T) {
 		})
 
 		result, err := NewAssignmentResource(httpClient).EstimateCostWithRequest(context.Background(), "d1", &models.EstimateAssignmentCostRequest{
-			Method: models.MethodVirtual, Signers: []models.EstimateAssignmentCostSigner{{}},
+			Method: models.MethodVirtual, Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: models.VerificationMethodDigitalCertificate}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -42,7 +42,7 @@ func TestAssignmentContractMethods(t *testing.T) {
 		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 			want := map[string]any{
 				"method":  "collect",
-				"signers": []any{map[string]any{"verification_method": "DigitalCertificate"}},
+				"signers": []any{map[string]any{"verification_method": "Email"}},
 				"entries": []any{map[string]any{"page_id": "p1"}},
 			}
 			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
@@ -53,10 +53,28 @@ func TestAssignmentContractMethods(t *testing.T) {
 
 		if _, err := NewAssignmentResource(httpClient).EstimateCostWithRequest(context.Background(), "d1", &models.EstimateAssignmentCostRequest{
 			Method:  models.MethodCollect,
-			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: "DigitalCertificate"}},
+			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: models.VerificationMethodEmail}},
 			Entries: []any{map[string]any{"page_id": "p1"}},
 		}); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("certificate requires virtual method", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(http.ResponseWriter, *http.Request) {
+			t.Error("request must not be sent")
+		})
+		resource := NewAssignmentResource(httpClient)
+		create := &models.CreateAssignmentRequest{Method: models.MethodCollect, Signers: []models.SignerReference{{VerificationMethod: models.VerificationMethodDigitalCertificate}}}
+		estimate := &models.EstimateAssignmentCostRequest{Method: models.MethodCollect, Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: models.VerificationMethodDigitalCertificate}}}
+
+		_, createErr := resource.Create(context.Background(), "d1", create)
+		_, legacyErr := resource.EstimateCost(context.Background(), "d1", create)
+		_, estimateErr := resource.EstimateCostWithRequest(context.Background(), "d1", estimate)
+		for name, err := range map[string]error{"create": createErr, "legacy estimate": legacyErr, "estimate": estimateErr} {
+			if !errors.Is(err, sdkerrors.ErrDigitalCertificateRequiresVirtual) || !errors.Is(err, sdkerrors.ErrInvalidInput) {
+				t.Errorf("%s: err = %v, want ErrDigitalCertificateRequiresVirtual and ErrInvalidInput", name, err)
+			}
 		}
 	})
 

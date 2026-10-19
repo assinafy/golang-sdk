@@ -42,9 +42,14 @@ func (r *AssignmentResource) List(ctx context.Context, params *models.ListParams
 
 // Create sends CreateAssignmentRequest for an authenticated document and returns
 // the created Assignment. It starts the virtual or collect signing workflow and
-// can dispatch signer notifications; validation or balance failures are API errors.
+// can dispatch signer notifications. A DigitalCertificate signer with any method
+// other than virtual returns errors.ErrDigitalCertificateRequiresVirtual before
+// a request; other validation or balance failures are API errors.
 // POST /documents/{document_id}/assignments.
 func (r *AssignmentResource) Create(ctx context.Context, documentID string, body *models.CreateAssignmentRequest) (*models.Assignment, error) {
+	if err := validateAssignmentCertificateMethod(body); err != nil {
+		return nil, err
+	}
 	var out models.Assignment
 	path := "/documents/" + url.PathEscape(documentID) + "/assignments"
 	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
@@ -55,7 +60,9 @@ func (r *AssignmentResource) Create(ctx context.Context, documentID string, body
 }
 
 // EstimateCost sends the creation-shaped CreateAssignmentRequest using client
-// authentication and returns CostEstimate without creating an assignment.
+// authentication and returns CostEstimate without creating an assignment. A
+// non-virtual DigitalCertificate signer returns
+// errors.ErrDigitalCertificateRequiresVirtual before a request.
 // POST /documents/{document_id}/assignments/estimate-cost.
 //
 // Deprecated: use EstimateCostWithRequest for the endpoint's dedicated body.
@@ -64,7 +71,9 @@ func (r *AssignmentResource) EstimateCost(ctx context.Context, documentID string
 }
 
 // EstimateCostWithRequest sends EstimateAssignmentCostRequest using client
-// authentication and returns CostEstimate without creating an assignment.
+// authentication and returns CostEstimate without creating an assignment. A
+// non-virtual DigitalCertificate signer returns
+// errors.ErrDigitalCertificateRequiresVirtual before a request.
 // POST /documents/{document_id}/assignments/estimate-cost.
 func (r *AssignmentResource) EstimateCostWithRequest(ctx context.Context, documentID string, body *models.EstimateAssignmentCostRequest) (*models.CostEstimate, error) {
 	return r.estimateCost(ctx, documentID, body)
@@ -74,6 +83,9 @@ func (r *AssignmentResource) estimateCost(ctx context.Context, documentID string
 	if err := requireEstimateSigners(body); err != nil {
 		return nil, err
 	}
+	if err := validateEstimateCertificateMethod(body); err != nil {
+		return nil, err
+	}
 	var out models.CostEstimate
 	path := "/documents/" + url.PathEscape(documentID) + "/assignments/estimate-cost"
 	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
@@ -81,6 +93,32 @@ func (r *AssignmentResource) estimateCost(ctx context.Context, documentID string
 		return nil, err
 	}
 	return &out, nil
+}
+
+func validateAssignmentCertificateMethod(body *models.CreateAssignmentRequest) error {
+	if body == nil {
+		return nil
+	}
+	for _, signer := range body.Signers {
+		if err := requireVirtualDigitalCertificate(body.Method, signer.VerificationMethod); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEstimateCertificateMethod(body any) error {
+	switch request := body.(type) {
+	case *models.EstimateAssignmentCostRequest:
+		for _, signer := range request.Signers {
+			if err := requireVirtualDigitalCertificate(request.Method, signer.VerificationMethod); err != nil {
+				return err
+			}
+		}
+	case *models.CreateAssignmentRequest:
+		return validateAssignmentCertificateMethod(request)
+	}
+	return nil
 }
 
 // requireEstimateSigners rejects a signer-less cost estimate before it reaches the network.

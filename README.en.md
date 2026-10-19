@@ -515,7 +515,7 @@ notification method is allowed per signer.
 | --- | --- | --- | --- |
 | `models.VerificationMethodEmail` *(default)* | `Email` | An email address on the signer | 0 credits |
 | `models.VerificationMethodWhatsApp` | `Whatsapp` | A `whatsapp_phone_number`, and a paid subscription | 0.45 credits |
-| `models.VerificationMethodDigitalCertificate` | `Email` or `Whatsapp` | The Digital Certificate feature, and a CPF or CNPJ in the signer's `government_id` | 0.5 credits plus the notification |
+| `models.VerificationMethodDigitalCertificate` | `Email` or `Whatsapp` | `models.MethodVirtual`, the Digital Certificate feature, and a CPF or CNPJ in the signer's `government_id` | 0.5 credits plus the notification |
 | `models.VerificationMethodIDDocumentFaceMatchBasic` | `Email` or `Whatsapp` | The ID Document + Face Match feature and a valid CPF in `government_id` | Estimate before sending |
 
 Email and WhatsApp charge for the notification: WhatsApp verification also
@@ -534,12 +534,19 @@ A `DigitalCertificate` signer signs with their own ICP-Brasil certificate — **
 held in software or **A3** on a token or smart card — through the Web PKI browser
 extension, producing a qualified **PAdES** signature on the document itself.
 
-Three conditions apply. The account needs the Digital Certificate feature
+Four conditions apply. The assignment must use `models.MethodVirtual`. The account needs the Digital Certificate feature
 (Standard and Pro plans). The signer needs a CPF or CNPJ in `government_id`,
 which `client.Signers.Create` or `Update` sets: a CPF requires that person's own certificate
 (an e-CPF, or an e-CNPJ naming them as legal representative), and a CNPJ requires
 an e-CNPJ for that company. And each certificate signer must be **alone in their
 signing step**.
+
+`Assignments.Create`, `EstimateCostWithRequest`, and the deprecated `EstimateCost`
+return `errors.ErrDigitalCertificateRequiresVirtual` before sending a non-virtual
+certificate request. The stable sentinel also matches `errors.ErrInvalidInput`.
+For template creation and estimates, the SDK reads the template detail when a
+certificate signer is present; placed fields mean `collect` and return the same
+error. OAuth connections need `oauth.ScopeTemplatesRead` for this template check.
 
 ```go
 _, err = client.Signers.Update(ctx, "", signer.ID, &models.UpdateSignerRequest{
@@ -1086,6 +1093,9 @@ case stderrors.Is(err, sdkerrors.ErrInvalidInput):
   URL is redacted before the error is returned.
 - `errors.ErrInvalidInput` — a local rejection: an empty required ID, a
   non-PDF upload, an oversized file, a malformed expiry.
+- `errors.ErrDigitalCertificateRequiresVirtual` — a stable local rejection for
+  a `DigitalCertificate` signer on a non-virtual assignment. It also matches
+  `errors.ErrInvalidInput`.
 
 On an OAuth connection, `errors.InsufficientScope(err)` reads the scope named by
 a `403` `insufficient_scope` challenge, and the `oauth` package returns

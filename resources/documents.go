@@ -200,10 +200,16 @@ func (r *DocumentResource) Verify(ctx context.Context, signatureHash string) (*m
 // CreateFromTemplate sends CreateDocumentFromTemplateOptions with the required
 // signer-role mappings and returns the created Document. It requires client
 // authentication; an empty accountID uses the configured default. Generation
-// continues asynchronously after the response.
+// continues asynchronously after the response. For DigitalCertificate signers,
+// it reads the template detail and returns
+// errors.ErrDigitalCertificateRequiresVirtual when placed fields make the
+// assignment collect.
 // POST /accounts/{account_id}/templates/{template_id}/documents.
 func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner, opts *models.CreateDocumentFromTemplateOptions) (*models.Document, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
+	if err := r.requireVirtualTemplateCertificate(ctx, accountID, templateID, signers); err != nil {
+		return nil, err
+	}
 
 	body := models.CreateDocumentFromTemplateOptions{Signers: nonNil(signers)}
 	if opts != nil {
@@ -222,10 +228,16 @@ func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, te
 
 // EstimateCostFromTemplate sends the required TemplateSigner list and returns a
 // CostEstimate without creating a document. It requires client authentication;
-// an empty accountID uses the configured default.
+// an empty accountID uses the configured default. For DigitalCertificate
+// signers, it reads the template detail and returns
+// errors.ErrDigitalCertificateRequiresVirtual when placed fields make the
+// assignment collect.
 // POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost.
 func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) (*models.CostEstimate, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
+	if err := r.requireVirtualTemplateCertificate(ctx, accountID, templateID, signers); err != nil {
+		return nil, err
+	}
 
 	type estimateSigner struct {
 		RoleID              string   `json:"role_id"`
@@ -249,6 +261,31 @@ func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, account
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (r *DocumentResource) requireVirtualTemplateCertificate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) error {
+	hasCertificateSigner := false
+	for _, signer := range signers {
+		if signer.VerificationMethod == models.VerificationMethodDigitalCertificate {
+			hasCertificateSigner = true
+			break
+		}
+	}
+	if !hasCertificateSigner {
+		return nil
+	}
+
+	// shortcut: template requests omit the derived method, so inspect fields until the API enforces this rule.
+	template, err := NewTemplateResource(r.http, accountID).Get(ctx, accountID, templateID)
+	if err != nil {
+		return err
+	}
+	for _, page := range template.Pages {
+		if len(page.Fields) > 0 {
+			return sdkerrors.ErrDigitalCertificateRequiresVirtual
+		}
+	}
+	return nil
 }
 
 // ListTags returns Tag payloads currently attached to the authenticated

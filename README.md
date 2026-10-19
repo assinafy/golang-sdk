@@ -514,7 +514,7 @@ permitido um método de notificação por signatário.
 | --- | --- | --- | --- |
 | `models.VerificationMethodEmail` *(padrão)* | `Email` | E-mail no signatário | 0 créditos |
 | `models.VerificationMethodWhatsApp` | `Whatsapp` | `whatsapp_phone_number` e assinatura paga | 0,45 crédito |
-| `models.VerificationMethodDigitalCertificate` | `Email` ou `Whatsapp` | Recurso Certificado Digital, e CPF ou CNPJ no `government_id` do signatário | 0,5 crédito mais a notificação |
+| `models.VerificationMethodDigitalCertificate` | `Email` ou `Whatsapp` | `models.MethodVirtual`, recurso Certificado Digital, e CPF ou CNPJ no `government_id` do signatário | 0,5 crédito mais a notificação |
 | `models.VerificationMethodIDDocumentFaceMatchBasic` | `Email` ou `Whatsapp` | Recurso ID Document + Face Match e CPF válido em `government_id` | Consulte a estimativa antes do envio |
 
 Email e WhatsApp cobram pela notificação: a verificação por WhatsApp também
@@ -533,11 +533,19 @@ Um signatário `DigitalCertificate` assina com o próprio certificado ICP-Brasil
 **A1** em software ou **A3** em token ou cartão — pela extensão de navegador Web PKI,
 produzindo uma assinatura **PAdES qualificada** no documento.
 
-Três condições valem. A conta precisa do recurso Certificado Digital (planos
+Quatro condições valem. O assignment precisa usar `models.MethodVirtual`. A conta precisa do recurso Certificado Digital (planos
 Standard e Pro). O signatário precisa de CPF ou CNPJ em `government_id`, gravado por
 `client.Signers.Update`: um CPF exige o certificado daquela pessoa (e-CPF, ou e-CNPJ
 que a nomeie como representante legal), e um CNPJ exige um e-CNPJ daquela empresa. E
 cada signatário por certificado precisa estar **sozinho no seu passo de assinatura**.
+
+`Assignments.Create`, `EstimateCostWithRequest` e o obsoleto `EstimateCost`
+devolvem `errors.ErrDigitalCertificateRequiresVirtual` antes de enviar uma
+requisição de certificado não virtual. O sentinela estável também corresponde a
+`errors.ErrInvalidInput`. Na criação e estimativa por modelo, o SDK lê os detalhes
+do modelo quando existe um signatário por certificado; campos posicionados
+significam `collect` e devolvem o mesmo erro. Conexões OAuth precisam de
+`oauth.ScopeTemplatesRead` para essa verificação do modelo.
 
 ```go
 _, err = client.Signers.Update(ctx, "", signer.ID, &models.UpdateSignerRequest{
@@ -1080,6 +1088,9 @@ case stderrors.Is(err, sdkerrors.ErrInvalidInput):
   é ocultado antes de o erro ser devolvido.
 - `errors.ErrInvalidInput` — rejeição local: um ID obrigatório vazio, um upload que
   não é PDF, um arquivo grande demais, um prazo malformado.
+- `errors.ErrDigitalCertificateRequiresVirtual` — rejeição local estável para um
+  signatário `DigitalCertificate` num assignment não virtual. Também corresponde a
+  `errors.ErrInvalidInput`.
 
 Numa conexão OAuth, `errors.InsufficientScope(err)` lê o escopo nomeado por um `403`
 com `insufficient_scope`, e o pacote `oauth` devolve `*oauth.Error` com o código RFC

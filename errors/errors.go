@@ -15,6 +15,11 @@ import (
 // call because a required path, file, or other input is invalid.
 var ErrInvalidInput = stderrors.New("assinafy: invalid input")
 
+// ErrDigitalCertificateRequiresVirtual identifies an assignment rejected
+// locally because a DigitalCertificate signer was paired with a non-virtual
+// signing method. It also wraps ErrInvalidInput.
+var ErrDigitalCertificateRequiresVirtual = fmt.Errorf("%w: DigitalCertificate signers require a virtual assignment", ErrInvalidInput)
+
 // ErrUnsafeRedirect identifies an unsafe request redirected across origins and
 // rejected before the destination received it.
 var ErrUnsafeRedirect = stderrors.New("assinafy: refused unsafe cross-origin redirect")
