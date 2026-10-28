@@ -23,6 +23,10 @@ type PaginationMeta struct {
 // Not every field applies to every endpoint. Page/PerPage are shared; consult
 // each resource method before using compatibility filters on another route.
 type ListParams struct {
+	// AccountID selects the workspace for AssignmentResource.List. Empty uses
+	// the client's default, or the OAuth token's workspace when no default is set.
+	// Other resource methods take their account ID as an argument and ignore it.
+	AccountID string
 	// Page is one-based; values less than one default to 1.
 	Page int
 	// PerPage defaults to 25 and is clamped to the API maximum of 100.

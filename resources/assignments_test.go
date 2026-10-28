@@ -15,6 +15,28 @@ import (
 )
 
 func TestAssignmentContractMethods(t *testing.T) {
+	t.Run("certificate estimate permits omitted method", func(t *testing.T) {
+		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || r.URL.Path != "/documents/d1/assignments/estimate-cost" {
+				t.Errorf("request = %s %s", r.Method, r.URL.Path)
+			}
+			want := map[string]any{"signers": []any{map[string]any{"verification_method": "DigitalCertificate"}}}
+			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
+				t.Errorf("body = %#v, want %#v", got, want)
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"documents":1,"total_credits":0.5}}`)
+		})
+		result, err := NewAssignmentResource(httpClient).EstimateCostWithRequest(context.Background(), "d1", &models.EstimateAssignmentCostRequest{
+			Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: models.VerificationMethodDigitalCertificate}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Documents != 1 || result.TotalCredits != 0.5 {
+			t.Fatalf("estimate = %+v", result)
+		}
+	})
+
 	t.Run("virtual certificate estimate has no signer id", func(t *testing.T) {
 		httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost || r.URL.Path != "/documents/d1/assignments/estimate-cost" {
@@ -145,6 +167,39 @@ func TestAssignmentsList(t *testing.T) {
 	}
 	if len(page.Data) != 1 || page.Data[0].ID != "asg1" {
 		t.Errorf("page = %+v", page)
+	}
+}
+
+func TestAssignmentsListWorkspaceSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, fallback, explicit, want string
+	}{
+		{"default workspace", "default", "", "default"},
+		{"explicit workspace", "default", "other", "other"},
+		{"OAuth workspace", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				q := r.URL.Query()
+				if r.Method != http.MethodGet || r.URL.Path != "/assignments" || q.Get("accountId") != tc.want || q.Has("account_id") {
+					t.Errorf("request = %s %s", r.Method, r.URL)
+				}
+				if tc.want == "" && q.Has("accountId") {
+					t.Error("empty workspace must be omitted for OAuth")
+				}
+				w.Header().Set("X-Pagination-Total-Count", "2")
+				writeJSONResponse(w, `{"status":200,"data":[{"id":"assignment","document_id":"document"}]}`)
+			})
+			params := models.ListParams{AccountID: tc.explicit, Sort: "-created_at"}
+			before := params
+			got, err := NewAssignmentResource(h, tc.fallback).List(context.Background(), &params)
+			if err != nil || len(got.Data) != 1 || got.Data[0].DocumentID != "document" || got.Pagination.TotalCount != 2 {
+				t.Fatalf("List = %+v, %v", got, err)
+			}
+			if !reflect.DeepEqual(params, before) {
+				t.Errorf("params changed: %+v", params)
+			}
+		})
 	}
 }
 

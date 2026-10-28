@@ -36,8 +36,16 @@ type Account struct {
 	Roles []string `json:"roles,omitempty"`
 	// IsDeleteAllowed reports whether the authenticated user may delete the account.
 	IsDeleteAllowed bool `json:"is_delete_allowed"`
+	// Limits contains plan limits on the single-account response; lists omit it.
+	Limits *AccountLimits `json:"limits,omitempty"`
 	// CreatedAt is the account creation date-time.
 	CreatedAt Timestamp `json:"created_at"`
+}
+
+// AccountLimits describes the workspace's current plan limits.
+type AccountLimits struct {
+	// WebhookEndpoints is the maximum number of webhook endpoints (1 or 3).
+	WebhookEndpoints int `json:"webhook_endpoints"`
 }
 
 // AccountTheme is the branding theme returned by GET /accounts/{id}/theme.

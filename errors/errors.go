@@ -34,12 +34,26 @@ type DeletionRestriction struct {
 	AccountIDs []string `json:"account_ids"`
 }
 
+// FieldError describes a validation failure returned by the API.
+type FieldError struct {
+	// Field names the invalid input, or is nil for a request-wide failure.
+	Field *string `json:"field"`
+	// Code identifies the validation rule that failed.
+	Code string `json:"code"`
+	// Message explains the failure.
+	Message string `json:"message"`
+}
+
 // APIError represents a non-success HTTP response or API-envelope status.
 type APIError struct {
 	// StatusCode is the HTTP or API-envelope status code.
 	StatusCode int `json:"status"`
 	// Message is the human-readable error message returned by the API.
 	Message string `json:"message"`
+	// Code identifies an API failure, such as ContractChanged for a stale update.
+	Code string `json:"code,omitempty"`
+	// Errors contains individual field or request-wide validation failures.
+	Errors []FieldError `json:"errors,omitempty"`
 	// Data contains optional structured error details from the response envelope.
 	Data any `json:"data,omitempty"`
 	// Restrictions contains account-deletion blockers when the API returns them.

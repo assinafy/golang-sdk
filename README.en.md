@@ -6,7 +6,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk/v2.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 
 Go client for the [Assinafy API v1](https://api.assinafy.com.br/v1/docs). It covers
-all 112 operations in the published OpenAPI description with typed requests,
+all 118 operations in the published OpenAPI description with typed requests,
 typed responses, and a single error contract.
 
 ## Contents
@@ -31,14 +31,15 @@ typed responses, and a single error contract.
    - [Signing with an ICP-Brasil certificate](#signing-with-an-icp-brasil-certificate)
 8. [Connecting other people's workspaces with OAuth](#connecting-other-peoples-workspaces-with-oauth)
 9. [Creating documents from templates](#creating-documents-from-templates)
-10. [Organizing documents with tags and fields](#organizing-documents-with-tags-and-fields)
-11. [Receiving webhooks](#receiving-webhooks)
-12. [Accounts, users, and statistics](#accounts-users-and-statistics)
-13. [Errors and retries](#errors-and-retries)
-14. [Handling credentials safely](#handling-credentials-safely)
-15. [API coverage](#api-coverage)
-16. [Development](#development)
-17. [License](#license)
+10. [Contract lifecycle management (CLM)](#contract-lifecycle-management-clm)
+11. [Organizing documents with tags and fields](#organizing-documents-with-tags-and-fields)
+12. [Receiving webhooks](#receiving-webhooks)
+13. [Accounts, users, and statistics](#accounts-users-and-statistics)
+14. [Errors and retries](#errors-and-retries)
+15. [Handling credentials safely](#handling-credentials-safely)
+16. [API coverage](#api-coverage)
+17. [Development](#development)
+18. [License](#license)
 
 ## Requirements
 
@@ -241,9 +242,6 @@ estimate, err := client.Assignments.EstimateCostWithRequest(ctx, document.ID,
 if err != nil {
 	return err
 }
-if err != nil {
-	log.Fatal(err)
-}
 if !estimate.HasSufficientResources {
 	return fmt.Errorf("cannot fund assignment: %v", estimate.BlockingReason)
 }
@@ -281,6 +279,10 @@ notified together; the next step is notified only after the previous one
 finishes. When any signer has a step, all of them need one, numbered
 contiguously from 1.
 
+To list assignments with an API key or user token, the client sends
+`ClientOptions.AccountID` as `accountId`; `models.ListParams.AccountID` overrides
+it. OAuth uses the workspace bound to the token.
+
 Creating the assignment can dispatch notifications immediately. The response's
 `SigningURLs` holds one signer-specific URL per virtual-flow signer.
 
@@ -288,11 +290,15 @@ Creating the assignment can dispatch notifications immediately. The response's
 
 | Question | Call |
 | --- | --- |
-| What has happened to this document? | `client.Documents.Activities(ctx, documentID)` |
+| What has happened to this document? | `client.Documents.ActivitiesWithParams(ctx, documentID, params)` |
 | Did the WhatsApp message go out, and what did it say? | `client.Assignments.ListWhatsAppNotifications(ctx, documentID, assignmentID)` |
 | Can I nudge one signer again? | `client.Assignments.EstimateResendCost(…)` then `client.Assignments.ResendNotification(…)` |
 | The deadline passed — can I extend it? | `client.Assignments.ResetExpirationWithRequest(…)` (a nil `ExpiresAt` removes the deadline) |
 | What is outstanding across the account? | `client.Assignments.List(ctx, params)` |
+
+`ActivitiesWithParams` returns `Pagination` and accepts `Page`, `PerPage`, and
+`Sort` (`-id` for newest first, `id` for oldest first). `Activities` returns only
+the first page, with 20 activities by default.
 
 ### 7. Drive a signer session
 
@@ -544,9 +550,12 @@ signing step**.
 `Assignments.Create`, `EstimateCostWithRequest`, and the deprecated `EstimateCost`
 return `errors.ErrDigitalCertificateRequiresVirtual` before sending a non-virtual
 certificate request. The stable sentinel also matches `errors.ErrInvalidInput`.
+`EstimateCostWithRequest` accepts an omitted `Method`; send the method you will
+use for creation to obtain a matching estimate.
 For template creation and estimates, the SDK reads the template detail when a
-certificate signer is present; placed fields mean `collect` and return the same
-error. OAuth connections need `oauth.ScopeTemplatesRead` for this template check.
+certificate signer is present; placed signer fields mean `collect` and return the
+same error. Fields on the `Editor` role are filled before sending and allow
+certificates. OAuth connections need `oauth.ScopeTemplatesRead` for this template check.
 
 ```go
 _, err = client.Signers.Update(ctx, "", signer.ID, &models.UpdateSignerRequest{
@@ -564,10 +573,11 @@ assignment, err := client.Assignments.Create(ctx, document.ID, &models.CreateAss
 })
 ```
 
-Such a signer confirms their data and accepts the terms as usual — one
-`ConfirmDataAndGet` call can do both — but `client.Assignments.Sign` **rejects
-them** with `400`. Their signature comes from a two-step exchange with the
-browser extension instead:
+Before calling `GetSigningInfo`, such a signer must confirm their data and accept
+the terms. `ConfirmDataAndGet` with `HasAcceptedTerms` pointing to `true` does both
+after the signer explicitly agrees; the terms query on `GetSigningInfo` does not open that
+gate. `client.Assignments.Sign` **rejects them** with `400`. Their signature comes
+from a two-step exchange with the browser extension:
 
 ```go
 start, err := client.Signers.StartCertificateSignature(ctx, signerAccessCode)
@@ -625,8 +635,9 @@ picked — you never handle their password or API key, and they can disconnect y
 at any time. Automating your own workspace needs none of this; keep using an API
 key.
 
-Register the application in the Assinafy app under **Integrations → OAuth apps**. You need to be an owner of the workspace that will own it, and
-its plan must include OAuth applications. Registration yields a `client_id`, plus
+Register the application in the Assinafy app under
+**Settings → OAuth applications → New application**. You need to be an owner of the
+workspace that will own it, and its plan must include OAuth applications. Registration yields a `client_id`, plus
 a `client_secret` for a **confidential** application whose code runs on a server
 you control. A **public** application — one running on the user's device, which
 cannot keep a secret — gets no secret and authenticates with PKCE alone.
@@ -798,7 +809,7 @@ user reads before deciding, and they approve everything or nothing.
 | `oauth.ScopeTemplatesRead` | Read templates |
 | `oauth.ScopeTemplatesWrite` | Create and change templates |
 | `oauth.ScopeAccountRead` | Read the workspace's profile, theme, and logo |
-| `oauth.ScopeWebhooksWrite` | Create, change, and delete the workspace webhook endpoints (not their signing secrets) |
+| `oauth.ScopeWebhooksWrite` | Create, change, and delete endpoints, enable signing, rotate their secrets, and retry deliveries |
 | `oauth.ScopeOpenID` | Receive an `id_token` identifying the user, and call `UserInfo` |
 | `oauth.ScopeProfile` | Read the user's name |
 | `oauth.ScopeEmail` | Read the user's email and whether it is verified |
@@ -906,10 +917,85 @@ document, err := client.Documents.CreateFromTemplate(ctx, "", template.ID,
 	})
 ```
 
-Supply one `TemplateSigner` per role, referencing signers that already exist in
-the account. `CreateDocumentFromTemplateOptions.EditorFields` fills the
-template's editor values, and its `Tags` are merged with the template's default
-document tags.
+Supply one `TemplateSigner` per `Signer` role. Use `ID` for an existing signer,
+or `Email` to reuse one by email or create one with `Name` and optional
+`WhatsAppPhoneNumber`; `ID` takes precedence. `CopyReceiver` roles are optional
+and ignore verification, notification, and step. The `Editor` role takes no signer:
+fill every editor field through `CreateDocumentFromTemplateOptions.EditorFields`
+with a non-empty value. `Tags` are merged with the template's default document tags.
+
+The initial response has status `uploaded` and `Assignment == nil`: the assignment
+is created in the background. Follow `Documents.Get` or webhooks until
+`pending_signature`/`assignment_created`; `failed`/`document_processing_failed`
+reports failure without charging. Keep the ID and do not repeat creation while waiting.
+
+## Contract lifecycle management (CLM)
+
+`client.Contracts` tracks terms on a document already in the workspace, without
+changing its upload or signing flow. Upload or choose a document, retain its ID,
+then set counterparty, value, dates, renewal settings and external references.
+Writes need a plan with contract tracking. OAuth uses `documents:read` for reads
+and `documents:write` for changes; reads remain available when entitlement lapses.
+
+```go
+// ctx, client and documentID come from the upload flow; import encoding/json.
+status := models.ContractStatusActive
+saved, err := client.Contracts.Set(ctx, "", documentID, &models.SetDocumentContractRequest{
+    Status: &status,
+    CounterpartyName: models.NullableValue("Example Company"),
+    Value: models.NullableValue(json.Number("1200.50")),
+    Currency: models.NullableValue("BRL"),
+    EndDate: models.NullableValue("2027-12-31"),
+    AutoRenew: models.NullableValue(false),
+    NoticePeriodDays: models.NullableValue(30),
+})
+if err != nil { return err }
+if saved.Contract == nil { return fmt.Errorf("expected root contract terms") }
+
+current, err := client.Contracts.Get(ctx, "", documentID)
+if err != nil { return err }
+if current.Contract == nil { return fmt.Errorf("document is an amendment") }
+renewed, err := client.Contracts.Renew(ctx, "", documentID, &models.RenewContractRequest{
+    Term: &current.Contract.Term,
+    UpdatedAt: &current.Contract.UpdatedAt,
+})
+if err != nil { return err }
+reason := "Service completed"
+_, err = client.Contracts.Terminate(ctx, "", documentID, &models.TerminateContractRequest{
+    Reason: &reason,
+    UpdatedAt: &renewed.UpdatedAt,
+})
+if err != nil { return err }
+```
+
+`Set` changes only supplied attributes. Nil omits a field;
+`models.NullableValue(false)` or `models.NullableValue(0)` sends that value;
+`&models.Nullable[string]{}` sends null to clear a nullable string. Construct
+these request fields in Go and retain encoded JSON bytes if persisting requests.
+Use `json.Number` for exact monetary values. `Renew` requires the current `Term`
+or a later `EndDate`, so resending the same request cannot advance two terms.
+Send the last read `UpdatedAt` to reject concurrent edits: a 409 has
+`APIError.Code == "ContractChanged"`; reread and reconcile before resending.
+Field failures are retained in `APIError.Errors` with field, code and message.
+
+To record a signed amendment, upload its document and call `Contracts.Set` on
+that new ID with `ParentDocumentID: models.NullableValue(rootDocumentID)`, a
+`RelationType` (`ContractRelationAmendment`, `ContractRelationRenewal` or
+`ContractRelationTermination`) and its changed terms. `ContractResult.Amendment`
+holds the link. It affects the root only after certification, in signing order;
+an already certified instrument may apply immediately. Pending links can be
+edited or unlinked with a null parent ID. Applied instruments are read-only.
+`Contracts.Related` reads the root and family from any document in it.
+
+`Contracts.List` accepts status, counterparty, date range, days until ending,
+external-reference, search, sort and `expand=document` filters, plus pagination.
+Page the default `-updated_at` order to recover missed webhook changes;
+`Documents.ActivitiesWithParams` reads each contract's event history. The hourly
+job uses Brasília dates for notice periods, 45/30-day warnings, renewal and expiry.
+Plan lapses pause it and pending amendments; restoration catches up. Control owner
+emails with the four `NotificationPreferenceContract*` preferences. All fields,
+null rules, state transitions and responses are in the
+[contract payload reference](docs/API.md#contract-tracking-payloads).
 
 ## Organizing documents with tags and fields
 
@@ -966,8 +1052,10 @@ endpoint of the workspace already uses is a `400`. `ListEndpoints`, `GetEndpoint
 `UpdateEndpoint` (only non-nil fields change), and `DeleteEndpoint` manage them.
 `RotateEndpointSecret` replaces the secret, and the old one stops working at
 once, so deploy the new secret before rotating again. OAuth applications cannot
-read or rotate secrets after creation. Persist `endpoint.Secret` before using the
-endpoint. An OAuth application that loses it must delete and recreate the endpoint.
+read an existing secret through `GetEndpointSecret`, but can call
+`RotateEndpointSecret` with `webhooks:write`. Persist `endpoint.Secret` on creation
+or when enabling signing through `UpdateEndpoint`; if it is lost, rotate it and
+update the receiver immediately.
 An API key or user token can retrieve it with `GetEndpointSecret`.
 `ListEndpointsByURL` filters by exact URL; `DeleteEndpointByURL` deletes by that URL.
 In `UpdateEndpoint`, `Events: []string{}` clears the selection; nil leaves it unchanged.
@@ -1009,12 +1097,14 @@ rejects a `webhook-timestamp` more than `assinafy.WebhookTolerance` (five
 minutes) from your clock. Failures wrap `assinafy.ErrInvalidWebhookSignature`.
 Read the body before parsing it; re-encoded JSON does not verify.
 
-Answer with a `2xx` quickly and do the work afterwards. Assinafy makes two
-attempts three seconds apart and pauses an endpoint after ten consecutive failed
-events. `client.Webhooks.ListDispatches` returns the delivery history — status
-code, response body, and error per attempt — filterable by endpoint, event,
-delivery result, and Unix time range, and `client.Webhooks.RetryDispatch` sends an
-entry to its endpoint again.
+Answer with a `2xx` quickly and process afterwards. There are up to six attempts
+per event, about ten minutes apart, for connection errors, timeouts, `408`, `429`,
+or `5xx`; other statuses are final. Ten consecutive failures set `IsHeld`.
+Probes run after 3, 15, and 60 minutes, then every six hours; success lifts the
+pause and delivers missed events oldest first. Changing the URL or sending
+`IsActive: true` also lifts the pause. `client.Webhooks.ListDispatches` retains
+seven days of history, including `WebhookID`, `Attempt`, `Kind`, and `WillRetry`
+beside the response. `RetryDispatch` sends one attempt immediately, even while paused.
 
 `webhook-id` is the same on every attempt of one event to one endpoint, so use it
 to deduplicate. Accept unknown fields and event names, and do not rely on
@@ -1029,9 +1119,9 @@ object, and payload keys is in [docs/API.md](docs/API.md#webhook-payloads).
 returns its blockers in `APIError.Restrictions` unless you pass `force`.
 
 `client.Users` covers the authenticated user: `GetSelf`, plus
-`GetNotificationPreferences` and `UpdateNotificationPreferences` for the nine
-owner-facing email notifications. An update merges the keys you send and returns
-the complete map.
+`GetNotificationPreferences` and `UpdateNotificationPreferences` for the thirteen
+owner-facing document and contract email notifications. An update merges the keys
+you send and returns the complete map.
 
 Two-factor authentication uses an authenticator app. `StartTOTPEnrollment`
 returns the secret and an `otpauth://` URI to show as a QR code, once.
@@ -1075,10 +1165,12 @@ var apiErr *sdkerrors.APIError
 switch {
 case sdkerrors.IsStatusCode(err, http.StatusNotFound):
 	// the document does not exist
+case stderrors.Is(err, oauth.ErrRefreshIndeterminate):
+	// Do not resend the refresh token; recover a token saved since or reconnect.
+case sdkerrors.IsRetryable(err):
+	// 429, 5xx, or a transport failure on this read — retry with backoff.
 case stderrors.As(err, &apiErr):
 	// any other API response: apiErr.StatusCode, .Message, .Data, .Headers, .Restrictions
-case sdkerrors.IsRetryable(err):
-	// 429, 5xx, or a transport failure — retry with backoff
 case stderrors.Is(err, sdkerrors.ErrInvalidInput):
 	// rejected locally, before any request was sent
 }
@@ -1143,6 +1235,7 @@ expands every response model field by field.
 | Accounts | 10 | `client.Accounts` |
 | Assignments | 10 | `client.Assignments` |
 | Authentication | 10 | `client.Authentication` |
+| Contracts | 6 | `client.Contracts` |
 | Documents | 18 | `client.Documents` |
 | Fields | 8 | `client.Fields` |
 | OAuth | 4 | the `oauth` package |
@@ -1152,7 +1245,7 @@ expands every response model field by field.
 | Templates | 1 | `client.Templates` |
 | Users | 9 | `client.Users` |
 | Webhooks | 14 | `client.Webhooks` |
-| **Total** | **112** | |
+| **Total** | **118** | |
 
 Beyond those operations the SDK also exposes `Client.UploadAndRequestSignatures`,
 `client.Templates.Get` (a single-template read the reference does not list as an
@@ -1168,6 +1261,10 @@ uses; treat them as unverified and see
 [Signing with an ICP-Brasil certificate](#signing-with-an-icp-brasil-certificate).
 Every other route reachable in production has a typed method here.
 
+The sandbox does not deploy every production route or feature, and its plan
+limits channels and operations. Use production credentials for features served
+only there. The OAuth flow uses the production authorization server.
+
 ## Development
 
 ```bash
@@ -1176,7 +1273,7 @@ go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
 go vet ./...
 gofmt -l .
 go tool cover -func=coverage.out
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --timeout=5m
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --timeout=5m
 go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -test ./...
 ```
 

@@ -6,7 +6,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk/v2.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 
 Cliente Go para a [API Assinafy v1](https://api.assinafy.com.br/v1/docs) — plataforma
-brasileira de assinatura eletrônica de documentos. Cobre as 112 operações da descrição
+brasileira de assinatura eletrônica de documentos. Cobre as 118 operações da descrição
 OpenAPI publicada, com requisições e respostas tipadas e um contrato de erro único.
 
 ## Conteúdo
@@ -31,15 +31,16 @@ OpenAPI publicada, com requisições e respostas tipadas e um contrato de erro �
    - [Assinando com certificado ICP-Brasil](#assinando-com-certificado-icp-brasil)
 8. [Conectando a conta de outras pessoas com OAuth](#conectando-a-conta-de-outras-pessoas-com-oauth)
 9. [Criando documentos a partir de modelos](#criando-documentos-a-partir-de-modelos)
-10. [Organizando documentos com etiquetas e campos](#organizando-documentos-com-etiquetas-e-campos)
-11. [Recebendo webhooks](#recebendo-webhooks)
-12. [Contas, usuários e estatísticas](#contas-usuários-e-estatísticas)
-13. [Erros e novas tentativas](#erros-e-novas-tentativas)
-14. [Cuidando das credenciais](#cuidando-das-credenciais)
-15. [Cobertura da API](#cobertura-da-api)
-16. [Ambientes](#ambientes)
-17. [Desenvolvimento](#desenvolvimento)
-18. [Licença](#licença)
+10. [Gestão de contratos (CLM)](#gestão-de-contratos-clm)
+11. [Organizando documentos com etiquetas e campos](#organizando-documentos-com-etiquetas-e-campos)
+12. [Recebendo webhooks](#recebendo-webhooks)
+13. [Contas, usuários e estatísticas](#contas-usuários-e-estatísticas)
+14. [Erros e novas tentativas](#erros-e-novas-tentativas)
+15. [Cuidando das credenciais](#cuidando-das-credenciais)
+16. [Cobertura da API](#cobertura-da-api)
+17. [Ambientes](#ambientes)
+18. [Desenvolvimento](#desenvolvimento)
+19. [Licença](#licença)
 
 ## Requisitos
 
@@ -282,6 +283,10 @@ notificados juntos; o passo seguinte só é notificado depois que o anterior ter
 Se um signatário tiver passo, todos precisam ter, numerados de 1 em diante sem
 buracos.
 
+Para listar assignments com uma chave de API ou token de usuário, o cliente envia
+`ClientOptions.AccountID` no parâmetro `accountId`; `models.ListParams.AccountID`
+sobrescreve essa conta. OAuth usa a conta vinculada ao token.
+
 Criar o assignment pode disparar notificações na hora. O `SigningURLs` da resposta
 traz uma URL por signatário no fluxo virtual.
 
@@ -289,11 +294,15 @@ traz uma URL por signatário no fluxo virtual.
 
 | Pergunta | Chamada |
 | --- | --- |
-| O que aconteceu com este documento? | `client.Documents.Activities(ctx, documentID)` |
+| O que aconteceu com este documento? | `client.Documents.ActivitiesWithParams(ctx, documentID, params)` |
 | A mensagem de WhatsApp saiu, e o que dizia? | `client.Assignments.ListWhatsAppNotifications(ctx, documentID, assignmentID)` |
 | Dá para lembrar um signatário de novo? | `client.Assignments.EstimateResendCost(…)` e depois `client.Assignments.ResendNotification(…)` |
 | O prazo venceu — dá para estender? | `client.Assignments.ResetExpirationWithRequest(…)` (`ExpiresAt` nil remove o prazo) |
 | O que está pendente na conta inteira? | `client.Assignments.List(ctx, params)` |
+
+`ActivitiesWithParams` devolve `Pagination` e aceita `Page`, `PerPage` e `Sort`
+(`-id` para mais recentes, `id` para mais antigos). `Activities` devolve apenas
+a primeira página, com 20 atividades por padrão.
 
 ### 7. Conduza a sessão do signatário
 
@@ -542,10 +551,11 @@ cada signatário por certificado precisa estar **sozinho no seu passo de assinat
 `Assignments.Create`, `EstimateCostWithRequest` e o obsoleto `EstimateCost`
 devolvem `errors.ErrDigitalCertificateRequiresVirtual` antes de enviar uma
 requisição de certificado não virtual. O sentinela estável também corresponde a
-`errors.ErrInvalidInput`. Na criação e estimativa por modelo, o SDK lê os detalhes
+`errors.ErrInvalidInput`. `EstimateCostWithRequest` aceita a omissão de `Method`; envie o método que usará na criação para obter uma estimativa correspondente. Na criação e estimativa por modelo, o SDK lê os detalhes
 do modelo quando existe um signatário por certificado; campos posicionados
-significam `collect` e devolvem o mesmo erro. Conexões OAuth precisam de
-`oauth.ScopeTemplatesRead` para essa verificação do modelo.
+de signatários significam `collect` e devolvem o mesmo erro. Campos do papel
+`Editor` são preenchidos antes do envio e não impedem certificados. Conexões OAuth
+precisam de `oauth.ScopeTemplatesRead` para essa verificação do modelo.
 
 ```go
 _, err = client.Signers.Update(ctx, "", signer.ID, &models.UpdateSignerRequest{
@@ -563,10 +573,11 @@ assignment, err := client.Assignments.Create(ctx, document.ID, &models.CreateAss
 })
 ```
 
-Esse signatário confirma os dados e aceita os termos normalmente — uma chamada a
-`ConfirmDataAndGet` resolve as duas coisas —, mas `client.Assignments.Sign` **o
-recusa** com `400`. A assinatura dele vem de uma troca em dois passos com a
-extensão:
+Antes de chamar `GetSigningInfo`, esse signatário precisa confirmar os dados e
+aceitar os termos. `ConfirmDataAndGet` com `HasAcceptedTerms` apontando para `true`
+faz ambos após a concordância explícita do signatário; o parâmetro de termos em `GetSigningInfo`
+não abre essa etapa. `client.Assignments.Sign` **o recusa** com `400`. A assinatura
+dele vem de uma troca em dois passos com a extensão:
 
 ```go
 start, err := client.Signers.StartCertificateSignature(ctx, signerAccessCode)
@@ -623,7 +634,7 @@ limitado às permissões aprovadas e a uma única conta — você nunca lida com
 nem com a chave de API dele, e ele pode desconectar você quando quiser. Automatizar a
 sua própria conta não precisa de nada disso; continue com uma chave de API.
 
-Registre a aplicação no app da Assinafy, em **Integrações → Apps OAuth**.
+Registre a aplicação no app da Assinafy, em **Configurações → Aplicações OAuth → Nova aplicação**.
 É preciso ser proprietário da conta que vai possuí-la, e o plano dessa conta precisa
 incluir aplicações OAuth. O registro gera um `client_id` e, para uma aplicação
 **confidencial** — cujo código roda em um servidor seu —, um `client_secret`. Uma
@@ -796,7 +807,7 @@ antes de decidir, e ele aprova tudo ou nada.
 | `oauth.ScopeTemplatesRead` | Ler modelos |
 | `oauth.ScopeTemplatesWrite` | Criar e alterar modelos |
 | `oauth.ScopeAccountRead` | Ler o perfil, o tema e o logotipo da conta |
-| `oauth.ScopeWebhooksWrite` | Criar, alterar e excluir os endpoints de webhook da conta (não os seus segredos de assinatura) |
+| `oauth.ScopeWebhooksWrite` | Criar, alterar e excluir endpoints, ativar a assinatura, rotacionar seu segredo e reenviar entregas |
 | `oauth.ScopeOpenID` | Receber um `id_token` identificando o usuário, e chamar `UserInfo` |
 | `oauth.ScopeProfile` | Ler o nome do usuário |
 | `oauth.ScopeEmail` | Ler o e-mail do usuário e se ele está verificado |
@@ -902,9 +913,87 @@ document, err := client.Documents.CreateFromTemplate(ctx, "", template.ID,
 	})
 ```
 
-Informe um `TemplateSigner` por papel, referenciando signatários que já existem na
-conta. `CreateDocumentFromTemplateOptions.EditorFields` preenche os valores do editor
-do modelo, e as `Tags` são somadas às etiquetas padrão do modelo.
+Informe um `TemplateSigner` por papel `Signer`. Use `ID` para um signatário existente
+ou `Email` para reutilizá-lo pelo e-mail ou criá-lo com `Name` e, opcionalmente,
+`WhatsAppPhoneNumber`; `ID` tem prioridade. Papéis `CopyReceiver` são opcionais e
+ignoram verificação, notificação e passo. O papel `Editor` não recebe signatário:
+preencha todos os seus campos em `CreateDocumentFromTemplateOptions.EditorFields`,
+com valores não vazios. As `Tags` são somadas às etiquetas padrão do modelo.
+
+A resposta inicial tem status `uploaded` e `Assignment == nil`: a solicitação é
+criada em segundo plano. Acompanhe `Documents.Get` ou webhooks até
+`pending_signature`/`assignment_created`; `failed`/`document_processing_failed`
+informa uma falha sem cobrança. Guarde o ID e não repita a criação ao esperar.
+
+## Gestão de contratos (CLM)
+
+`client.Contracts` acompanha os termos de um documento da conta sem alterar seu
+fluxo de envio ou assinatura. Envie ou escolha um documento, guarde seu ID e
+registre contraparte, valor, datas, renovação e referências externas. Alterações
+exigem um plano com gestão de contratos. OAuth usa `documents:read` para ler e
+`documents:write` para alterar; a leitura continua disponível sem esse recurso no plano.
+
+```go
+// ctx, client e documentID vêm do fluxo de upload; importe encoding/json.
+status := models.ContractStatusActive
+saved, err := client.Contracts.Set(ctx, "", documentID, &models.SetDocumentContractRequest{
+    Status: &status,
+    CounterpartyName: models.NullableValue("Empresa Exemplo"),
+    Value: models.NullableValue(json.Number("1200.50")),
+    Currency: models.NullableValue("BRL"),
+    EndDate: models.NullableValue("2027-12-31"),
+    AutoRenew: models.NullableValue(false),
+    NoticePeriodDays: models.NullableValue(30),
+})
+if err != nil { return err }
+if saved.Contract == nil { return fmt.Errorf("expected root contract terms") }
+
+current, err := client.Contracts.Get(ctx, "", documentID)
+if err != nil { return err }
+if current.Contract == nil { return fmt.Errorf("document is an amendment") }
+renewed, err := client.Contracts.Renew(ctx, "", documentID, &models.RenewContractRequest{
+    Term: &current.Contract.Term,
+    UpdatedAt: &current.Contract.UpdatedAt,
+})
+if err != nil { return err }
+reason := "Serviço concluído"
+_, err = client.Contracts.Terminate(ctx, "", documentID, &models.TerminateContractRequest{
+    Reason: &reason,
+    UpdatedAt: &renewed.UpdatedAt,
+})
+if err != nil { return err }
+```
+
+`Set` altera somente atributos enviados. Nil omite o campo;
+`models.NullableValue(false)` ou `models.NullableValue(0)` envia esse valor;
+`&models.Nullable[string]{}` envia null para limpar uma string anulável. Construa
+os campos em Go e guarde o JSON codificado se precisar persistir uma requisição.
+Use `json.Number` para preservar valores monetários exatos. `Renew` exige o `Term`
+atual ou um `EndDate` posterior: repetir a mesma chamada não avança dois períodos.
+Envie o último `UpdatedAt` lido para recusar alterações concorrentes: um 409 traz
+`APIError.Code == "ContractChanged"`; releia e concilie antes de reenviar.
+`APIError.Errors` preserva campo, código e mensagem de cada falha de validação.
+
+Para registrar um aditivo assinado, envie seu documento e chame `Contracts.Set`
+nesse novo ID com `ParentDocumentID: models.NullableValue(rootDocumentID)`,
+`RelationType` (`ContractRelationAmendment`, `ContractRelationRenewal` ou
+`ContractRelationTermination`) e os termos alterados. `ContractResult.Amendment`
+contém o vínculo. Ele afeta o contrato apenas após certificação, na ordem das
+assinaturas; um instrumento já certificado pode ser aplicado imediatamente.
+Vínculos pendentes podem ser editados ou desvinculados enviando null no ID pai.
+Instrumentos aplicados são somente leitura. `Contracts.Related` lê o contrato raiz
+e sua família a partir de qualquer documento vinculado.
+
+`Contracts.List` filtra por status, contraparte, intervalo de datas, dias até o
+vencimento, referência externa, busca, ordenação e `expand=document`, com
+paginação. Percorra a ordem padrão `-updated_at` para recuperar alterações de
+webhooks não recebidos; `Documents.ActivitiesWithParams` lê o histórico de eventos.
+O processo horário usa datas de Brasília para avisos, alertas de 45/30 dias,
+renovação e expiração. A perda do recurso no plano pausa o processo e os aditivos
+pendentes; a restauração retoma o processamento. As quatro preferências
+`NotificationPreferenceContract*` controlam os e-mails do responsável. Campos,
+regras de null, estados e respostas estão na
+[referência de contratos](docs/API.md#contract-tracking-payloads).
 
 ## Organizando documentos com etiquetas e campos
 
@@ -960,10 +1049,11 @@ Criar um endpoint além do limite do plano gera `APIError` `403`, e uma URL que 
 endpoint da conta já usa gera `400`. `ListEndpoints`, `GetEndpoint`, `UpdateEndpoint`
 (só os campos não nulos mudam) e `DeleteEndpoint` os administram.
 `RotateEndpointSecret` troca o segredo, e o anterior deixa de valer na hora; publique
-o novo segredo antes de girar outra vez. Aplicativos OAuth não leem nem giram
-segredos após a criação. Persista `endpoint.Secret` antes de usar o endpoint. Se
-um aplicativo OAuth perder esse segredo, exclua o endpoint e crie outro. Uma chave
-de API ou token de usuário permite recuperá-lo com `GetEndpointSecret`.
+o novo segredo antes de girar outra vez. Aplicativos OAuth não leem o
+segredo existente com `GetEndpointSecret`, mas podem chamar `RotateEndpointSecret`
+com `webhooks:write`. Persista `endpoint.Secret` na criação ou ao ativar a
+assinatura por `UpdateEndpoint`; se perder o segredo, rotacione e atualize o
+receptor imediatamente. Uma chave de API ou token de usuário permite recuperá-lo com `GetEndpointSecret`.
 `ListEndpointsByURL` filtra a URL exata e `DeleteEndpointByURL` exclui por essa URL.
 Em `UpdateEndpoint`, `Events: []string{}` limpa a seleção; `nil` a mantém.
 
@@ -1004,11 +1094,15 @@ compara em tempo constante com cada entrada `v1,` de `webhook-signature` e rejei
 relógio. As falhas envolvem `assinafy.ErrInvalidWebhookSignature`. Leia o corpo antes
 de interpretá-lo; JSON recodificado não confere.
 
-Responda `2xx` rápido e processe depois. A Assinafy faz duas tentativas com três
-segundos de intervalo e pausa um endpoint após dez eventos seguidos com falha.
-`client.Webhooks.ListDispatches` devolve o histórico de entregas — código de status,
-corpo da resposta e erro por tentativa — filtrável por endpoint, evento, resultado e
-intervalo Unix, e `client.Webhooks.RetryDispatch` reenvia uma entrada ao seu endpoint.
+Responda `2xx` rápido e processe depois. Há até seis tentativas por evento, com
+intervalo de cerca de dez minutos, para falhas de conexão, timeout, `408`, `429`
+ou `5xx`; outros status encerram a tentativa. Após dez falhas consecutivas,
+`IsHeld` indica pausa. Sondagens ocorrem após 3, 15 e 60 minutos, depois a cada
+seis horas; um sucesso libera a pausa e entrega os eventos pendentes em ordem.
+Alterar a URL ou enviar `IsActive: true` também libera a pausa.
+`client.Webhooks.ListDispatches` mantém sete dias de histórico, com `WebhookID`,
+`Attempt`, `Kind` e `WillRetry`, além da resposta. `RetryDispatch` tenta uma
+entrega imediatamente, inclusive durante uma pausa.
 
 `webhook-id` é o mesmo em todas as tentativas de um evento para um endpoint; use-o
 para deduplicar. Aceite campos e nomes de evento desconhecidos, e não dependa da
@@ -1023,9 +1117,9 @@ identidade visual que o signatário vê. Apagar uma conta é destrutivo e devolv
 impedimentos em `APIError.Restrictions`, a menos que se passe `force`.
 
 `client.Users` cobre o usuário autenticado: `GetSelf`, mais
-`GetNotificationPreferences` e `UpdateNotificationPreferences` para as nove
-notificações por e-mail do proprietário. Uma atualização mescla as chaves enviadas e
-devolve o mapa completo.
+`GetNotificationPreferences` e `UpdateNotificationPreferences` para as treze
+notificações por e-mail de documentos e contratos do proprietário. Uma atualização
+mescla as chaves enviadas e devolve o mapa completo.
 
 A autenticação em dois fatores usa um aplicativo autenticador. `StartTOTPEnrollment`
 devolve o segredo e uma URI `otpauth://` para exibir como QR code, uma única vez.
@@ -1070,10 +1164,12 @@ var apiErr *sdkerrors.APIError
 switch {
 case sdkerrors.IsStatusCode(err, http.StatusNotFound):
 	// o documento não existe
+case stderrors.Is(err, oauth.ErrRefreshIndeterminate):
+	// Não reenvie o refresh token; recupere um token salvo depois ou reconecte.
+case sdkerrors.IsRetryable(err):
+	// 429, 5xx ou falha de transporte nesta leitura — repita com backoff.
 case stderrors.As(err, &apiErr):
 	// qualquer outra resposta: apiErr.StatusCode, .Message, .Data, .Headers, .Restrictions
-case sdkerrors.IsRetryable(err):
-	// 429, 5xx ou falha de transporte — repita com backoff
 case stderrors.Is(err, sdkerrors.ErrInvalidInput):
 	// rejeitado localmente, antes de qualquer requisição
 }
@@ -1138,6 +1234,7 @@ oficial. Também expande todos os modelos de resposta, campo a campo.
 | Contas | 10 | `client.Accounts` |
 | Assignments | 10 | `client.Assignments` |
 | Autenticação | 10 | `client.Authentication` |
+| Contratos | 6 | `client.Contracts` |
 | Documentos | 18 | `client.Documents` |
 | Campos | 8 | `client.Fields` |
 | OAuth | 4 | pacote `oauth` |
@@ -1147,7 +1244,7 @@ oficial. Também expande todos os modelos de resposta, campo a campo.
 | Modelos | 1 | `client.Templates` |
 | Usuários | 9 | `client.Users` |
 | Webhooks | 14 | `client.Webhooks` |
-| **Total** | **112** | |
+| **Total** | **118** | |
 
 Além dessas operações o SDK também expõe `Client.UploadAndRequestSignatures`,
 `client.Templates.Get` (uma leitura de modelo único que a referência não lista como
@@ -1170,8 +1267,10 @@ outra rota alcançável em produção tem um método tipado aqui.
 | Produção | `https://api.assinafy.com.br/v1` |
 | Sandbox | `assinafy.SandboxBaseURL` — `https://sandbox.assinafy.com.br/v1` |
 
-O sandbox é gratuito e espelha a produção para testar a integração de ponta a ponta.
-As quatro operações OAuth existem apenas em produção.
+O sandbox permite testar a integração, mas alguns recursos e rotas ainda não
+estão implantados nele, e seu plano limita canais e operações. Use produção
+para os recursos disponíveis apenas nesse ambiente, com credenciais próprias.
+O fluxo OAuth usa o servidor de autorização de produção.
 
 ## Desenvolvimento
 
@@ -1181,7 +1280,7 @@ go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
 go vet ./...
 gofmt -l .
 go tool cover -func=coverage.out
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --timeout=5m
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --timeout=5m
 go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -test ./...
 ```
 

@@ -102,9 +102,9 @@ const (
 	ScopeTemplatesWrite = "templates:write"
 	// ScopeAccountRead reads the workspace's profile, theme and logo.
 	ScopeAccountRead = "account:read"
-	// ScopeWebhooksWrite creates, changes and deletes the workspace webhook
-	// endpoints. A signing secret is returned only at creation; OAuth tokens
-	// cannot retrieve or rotate it later.
+	// ScopeWebhooksWrite manages workspace webhook endpoints and delivery retries.
+	// A new signing secret is returned when creating a signed endpoint, enabling
+	// signing or rotating its secret; OAuth tokens cannot read an existing secret.
 	ScopeWebhooksWrite = "webhooks:write"
 	// ScopeOpenID identifies the authenticated user and enables Config.UserInfo.
 	ScopeOpenID = "openid"
@@ -291,7 +291,7 @@ func (e Endpoint) resolve() Endpoint {
 }
 
 // Config describes one registered Assinafy application. Create the application
-// in the Assinafy app under Integrations, OAuth apps; it cannot be created
+// in the Assinafy app under Settings, OAuth applications; it cannot be created
 // through the API. A Config is safe for concurrent use once built.
 type Config struct {
 	// ClientID is the public identifier issued when the application was registered.
@@ -318,7 +318,7 @@ type Config struct {
 	// with a 30-second timeout that requires TLS 1.2 or newer. Never give it a
 	// transport that retries on its own: a retried refresh replays a retired
 	// refresh token and ends the connection, and a code can be exchanged once.
-	// Token and revocation requests never follow a redirect, whatever its
+	// Token, revocation and userinfo requests never follow a redirect, whatever its
 	// CheckRedirect says; a redirect is returned as an *Error. A refresh that
 	// fails in any Transport other than an *http.Transport is treated as one
 	// that may have reached the server.
@@ -634,6 +634,9 @@ func (c *Config) token(ctx context.Context, form url.Values) (*Token, error) {
 // outcome answers 200, including an unknown, malformed or already-revoked
 // token, so the endpoint can never be used to probe whether a token exists.
 // Only failed client authentication returns an *Error.
+// The authenticating ClientID must own the token. An internal-service client
+// cannot revoke an RFC 8693 token it exchanged: that token belongs to the
+// original front-end client, and revocation returns 200 without changing it.
 //
 // POST /v1/oauth/revoke.
 func (c *Config) Revoke(ctx context.Context, token, hint string) error {
@@ -687,7 +690,9 @@ func (c *Config) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	var info UserInfo
-	if err := c.do(c.httpClient(), req, &info); err != nil {
+	client := *c.httpClient()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	if err := c.do(&client, req, &info); err != nil {
 		return nil, err
 	}
 	return &info, nil
@@ -739,7 +744,7 @@ func (c *Config) do(client *http.Client, req *http.Request, result any) error {
 	}))
 	resp, err := client.Do(req)
 	if err != nil {
-		err = fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), &sdkerrors.NetworkError{Err: redactTransportError(err)})
+		err = fmt.Errorf("assinafy/oauth: %s %s: %w", req.Method, redactQuery(req.URL), &sdkerrors.NetworkError{Err: internal.RedactTransportError(err)})
 		if known && asked.Load() && !connected.Load() {
 			return err
 		}
@@ -796,20 +801,4 @@ func redactQuery(u *url.URL) string {
 	clean.RawQuery = ""
 	clean.User = nil
 	return clean.String()
-}
-
-// redactTransportError strips the query string net/http records on a *url.Error,
-// so a failed dial cannot print a credential carried in the URL.
-func redactTransportError(err error) error {
-	var urlErr *url.Error
-	if !errors.As(err, &urlErr) {
-		return err
-	}
-	clean := *urlErr
-	if parsed, parseErr := url.Parse(clean.URL); parseErr == nil {
-		clean.URL = redactQuery(parsed)
-	} else if i := strings.IndexByte(clean.URL, '?'); i >= 0 {
-		clean.URL = clean.URL[:i]
-	}
-	return &clean
 }

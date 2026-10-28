@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -66,6 +67,37 @@ func TestHTTPClientPreservesDeletionRestrictions(t *testing.T) {
 		apiErr.Restrictions[0].Code != "ActivePaidSubscription" ||
 		len(apiErr.Restrictions[0].AccountIDs) != 1 || apiErr.Restrictions[0].AccountIDs[0] != "account-1" {
 		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestHTTPClientPreservesStructuredErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"conflict", http.StatusConflict, `{"status":409,"message":"Reload the contract","code":"ContractChanged"}`},
+		{"validation", http.StatusBadRequest, `{"status":400,"message":"Invalid contract","errors":[{"field":"title","code":"Required","message":"Title is required"},{"field":null,"code":"InvalidTerm","message":"Invalid term"}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := &http.Response{StatusCode: tc.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.body))}
+			_, err := parseResponse(response, nil)
+			var apiErr *sdkerrors.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tc.status {
+				t.Fatalf("error = %v, want APIError status %d", err, tc.status)
+			}
+			if tc.status == http.StatusConflict {
+				if apiErr.Code != "ContractChanged" {
+					t.Fatalf("Code = %q", apiErr.Code)
+				}
+				return
+			}
+			if len(apiErr.Errors) != 2 || apiErr.Errors[0].Field == nil || *apiErr.Errors[0].Field != "title" ||
+				apiErr.Errors[0].Code != "Required" || apiErr.Errors[0].Message != "Title is required" ||
+				apiErr.Errors[1].Field != nil || apiErr.Errors[1].Code != "InvalidTerm" {
+				t.Fatalf("Errors = %#v", apiErr.Errors)
+			}
+		})
 	}
 }
 
@@ -303,6 +335,47 @@ func TestHTTPClientRedactsSignerCodeFromNetworkErrors(t *testing.T) {
 				t.Fatalf("network error leaked signer code: %v", err)
 			}
 		})
+	}
+}
+
+func TestHTTPClientRedactsSignerCodeFromMalformedRedirectErrors(t *testing.T) {
+	const secret = "signer-secret-code"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/%?"+r.URL.RawQuery)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, "", "", time.Second)
+	_, err := client.NewRequest(http.MethodGet, "/signers/self").
+		WithSignerAccessCode(secret).
+		Execute(context.Background(), nil)
+	var networkErr *sdkerrors.NetworkError
+	if !errors.As(err, &networkErr) {
+		t.Fatalf("error = %v, want NetworkError", err)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("network error exposed signer access code: %v", err)
+	}
+}
+
+func TestRedactTransportErrorPreservesTheCause(t *testing.T) {
+	cause := url.EscapeError("%")
+	original := &url.Error{
+		Op:  "Get",
+		URL: "https://example.test/signers/self?signer-access-code=secret",
+		Err: fmt.Errorf("redirect /%%?signer-access-code=secret: %w", cause),
+	}
+	err := RedactTransportError(original)
+	var escapeErr url.EscapeError
+	if !errors.Is(err, cause) || !errors.As(err, &escapeErr) {
+		t.Fatalf("error lost the original cause: %v", err)
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error exposed signer access code: %v", err)
+	}
+	if !strings.Contains(original.Error(), "secret") {
+		t.Fatal("the original error was mutated")
 	}
 }
 

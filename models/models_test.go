@@ -194,6 +194,70 @@ func TestCostEstimateDecodesBlockingReasonAndMessage(t *testing.T) {
 	}
 }
 
+func TestCostEstimateCreditBalance(t *testing.T) {
+	estimate := CostEstimate{CreditBalance: 7}
+	for _, tc := range []struct {
+		body      string
+		balance   float64
+		unlimited bool
+	}{
+		{`{"credit_balance":null,"has_sufficient_credits":true}`, 0, true},
+		{`{"credit_balance":12.5,"has_sufficient_credits":false}`, 12.5, false},
+		{`{"credit_balance":null}`, 0, true},
+		{`{}`, 0, false},
+		{`{"credit_balance":0}`, 0, false},
+	} {
+		if err := json.Unmarshal([]byte(tc.body), &estimate); err != nil {
+			t.Fatal(err)
+		}
+		if estimate.CreditBalance != tc.balance || estimate.CreditBalanceUnlimited != tc.unlimited {
+			t.Fatalf("%s: estimate = %+v", tc.body, estimate)
+		}
+		encoded, err := json.Marshal(estimate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var object map[string]any
+		if err := json.Unmarshal(encoded, &object); err != nil {
+			t.Fatal(err)
+		}
+		balance, present := object["credit_balance"]
+		if !present || (tc.unlimited && balance != nil) || (!tc.unlimited && balance != tc.balance) {
+			t.Fatalf("credit balance changed on encoding: %s", encoded)
+		}
+		var roundTrip CostEstimate
+		if err := json.Unmarshal(encoded, &roundTrip); err != nil {
+			t.Fatal(err)
+		}
+		if roundTrip.CreditBalance != estimate.CreditBalance || roundTrip.CreditBalanceUnlimited != estimate.CreditBalanceUnlimited {
+			t.Fatalf("credit balance changed on decoding: %+v", roundTrip)
+		}
+	}
+	for _, body := range []string{`{"credit_balance":`, `{"credit_balance":"unlimited"}`, `{"credit_balance":{}}`} {
+		estimate = CostEstimate{CreditBalance: 3}
+		if err := json.Unmarshal([]byte(body), &estimate); err == nil {
+			t.Fatalf("invalid balance accepted: %s", body)
+		}
+		if estimate.CreditBalance != 3 {
+			t.Fatalf("invalid balance changed receiver: %+v", estimate)
+		}
+	}
+	encoded, err := json.Marshal(CostEstimate{CreditBalanceUnlimited: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		t.Fatal(err)
+	}
+	if sufficient, present := object["has_sufficient_credits"]; !present || sufficient != false {
+		t.Fatalf("false credit availability lost: %s", encoded)
+	}
+	if _, present := object["CreditBalanceUnlimited"]; present {
+		t.Fatalf("balance metadata must not be serialized: %s", encoded)
+	}
+}
+
 func TestTemplateSignerStepMarshal(t *testing.T) {
 	step := 2
 	out, err := json.Marshal(TemplateSigner{RoleID: "r1", ID: "s1", Step: &step})

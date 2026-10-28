@@ -11,7 +11,7 @@ func TestFullResponsePayloadRoundTrips(t *testing.T) {
 		const fixture = `{
 			"resource":"document","id":"doc_1","account_id":"account_1","template_id":"template_1","name":"Agreement.pdf","status":"certificated",
 			"artifacts":{"original":"https://example.test/documents/doc_1/original","certificated":"https://example.test/documents/doc_1/certificated","certificate-page":"https://example.test/documents/doc_1/certificate-page","pades":"https://example.test/documents/doc_1/pades","bundle":"https://example.test/documents/doc_1/bundle","thumbnail":"https://example.test/documents/doc_1/thumbnail"},
-			"is_closed":true,"signing_url":"https://example.test/sign/doc_1","decline_reason":"duplicate",
+			"is_closed":true,"signing_url":"https://example.test/sign/doc_1","verification_code":"verification-code","verification_url":"https://example.test/verify/verification-code","has_contract":false,"decline_reason":"duplicate",
 			"declined_by":{"resource":"signer","id":"signer_1","full_name":"Example Signer","email":"signer@example.test","has_accepted_terms":true},
 			"tags":[{"resource":"tag","id":"tag_1","name":"Legal","color":"112233","created_at":"2026-01-01T10:00:00Z","updated_at":"2026-01-01T11:00:00Z"}],
 			"created_at":"2026-01-01T10:00:00Z","updated_at":"2026-01-01T11:00:00Z",
@@ -27,6 +27,9 @@ func TestFullResponsePayloadRoundTrips(t *testing.T) {
 			document.CurrentSigner == nil || document.CurrentSigner.ID != "signer_2" || document.DownloadURL == nil ||
 			*document.DownloadURL == "" || document.DownloadFinalURL == nil || *document.DownloadFinalURL == "" {
 			t.Fatalf("document relationship or URL fields were not decoded: %+v", document)
+		}
+		if document.VerificationCode == nil || *document.VerificationCode != "verification-code" || document.VerificationURL == nil || document.HasContract == nil || *document.HasContract {
+			t.Fatalf("verification or contract fields were not decoded: %+v", document)
 		}
 		for name, value := range map[string]*string{
 			"original": document.Artifacts.Original, "certificated": document.Artifacts.Certificated,
@@ -75,14 +78,36 @@ func TestFullResponsePayloadRoundTrips(t *testing.T) {
 	t.Run("webhook dispatch", func(t *testing.T) {
 		const fixture = `{
 			"resource":"activity_dispatching_history","id":"dispatch_1","event":"document_ready","activity_id":42,"endpoint":"https://hooks.example.test/assinafy",
-			"payload":{"document_id":"doc_1","attempt":2},"delivered":false,"http_status":500,"response_body":"temporary failure","error":"subscriber returned an error",
+			"payload":{"document_id":"doc_1","attempt":2},"delivered":false,"webhook_id":"delivery-id","attempt":2,"kind":"scheduled","will_retry":false,"http_status":500,"response_body":"temporary failure","error":"subscriber returned an error",
 			"created_at":"2026-01-01T10:00:00Z","updated_at":"2026-01-01T10:01:00Z"
 		}`
 		dispatch := assertPayloadRoundTrip[WebhookDispatch](t, fixture)
 		if dispatch.ActivityID != 42 || dispatch.Endpoint == nil || dispatch.HTTPStatus == nil ||
 			*dispatch.HTTPStatus != 500 || dispatch.ResponseBody == nil || dispatch.Error == nil ||
-			dispatch.Payload["attempt"] != float64(2) {
+			dispatch.Payload["attempt"] != float64(2) || dispatch.WebhookID == nil || *dispatch.WebhookID != "delivery-id" ||
+			dispatch.Attempt == nil || *dispatch.Attempt != 2 || dispatch.Kind != "scheduled" || dispatch.WillRetry {
 			t.Fatalf("webhook dispatch fields were not decoded: %+v", dispatch)
+		}
+	})
+
+	t.Run("account limits", func(t *testing.T) {
+		account := assertPayloadRoundTrip[Account](t, `{"id":"account","name":"Example","is_delete_allowed":false,"created_at":"2026-10-28T00:00:00Z","limits":{"webhook_endpoints":3}}`)
+		if account.Limits == nil || account.Limits.WebhookEndpoints != 3 {
+			t.Fatalf("account limits = %+v", account.Limits)
+		}
+	})
+
+	t.Run("held webhook endpoint", func(t *testing.T) {
+		endpoint := assertPayloadRoundTrip[WebhookEndpoint](t, `{"resource":"activity_event_subscription","id":"endpoint","name":null,"url":"https://example.test/hook","email":"ops@example.test","events":[],"is_active":true,"is_held":true,"held_since":1705316400,"signing_enabled":true,"created_at":"2026-10-28T00:00:00Z","updated_at":"2026-10-28T00:00:00Z"}`)
+		if !endpoint.IsHeld || endpoint.HeldSince == nil || endpoint.HeldSince.String() != "1705316400" {
+			t.Fatalf("endpoint hold = %+v", endpoint)
+		}
+	})
+
+	t.Run("running webhook subscription", func(t *testing.T) {
+		subscription := assertPayloadRoundTrip[WebhookSubscription](t, `{"events":[],"is_active":true,"is_held":false,"held_since":null}`)
+		if subscription.IsHeld || subscription.HeldSince != nil {
+			t.Fatalf("subscription hold = %+v", subscription)
 		}
 	})
 
@@ -98,6 +123,36 @@ func TestFullResponsePayloadRoundTrips(t *testing.T) {
 			t.Fatalf("webhook payload fields were not decoded: %+v", payload)
 		}
 	})
+}
+
+func TestDocumentContractPresence(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want *bool
+	}{
+		{`{}`, nil},
+		{`{"has_contract":false}`, new(false)},
+		{`{"has_contract":true}`, new(true)},
+	} {
+		var doc Document
+		if err := json.Unmarshal([]byte(tc.body), &doc); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(doc.HasContract, tc.want) || doc.VerificationCode != nil || doc.VerificationURL != nil {
+			t.Fatalf("document = %+v", doc)
+		}
+		encoded, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(encoded, &result); err != nil {
+			t.Fatal(err)
+		}
+		if _, present := result["has_contract"]; present != (tc.want != nil) {
+			t.Fatalf("contract presence changed: %s", encoded)
+		}
+	}
 }
 
 func assertPayloadRoundTrip[T any](t *testing.T, fixture string) T {

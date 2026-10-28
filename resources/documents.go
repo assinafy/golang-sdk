@@ -152,15 +152,35 @@ func (r *DocumentResource) Rename(ctx context.Context, documentID, name string) 
 	return &out, nil
 }
 
-// Activities returns the authenticated document's DocumentActivity activity payloads.
+// Activities returns the authenticated document's first page of activities,
+// newest first (20 by default). Use ActivitiesWithParams to read further pages.
 // GET /documents/{document_id}/activities.
 func (r *DocumentResource) Activities(ctx context.Context, documentID string) ([]models.DocumentActivity, error) {
-	var out []models.DocumentActivity
-	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/activities").Execute(ctx, &out)
+	page, err := r.ActivitiesWithParams(ctx, documentID, nil)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	return page.Data, nil
+}
+
+// ActivitiesWithParams returns the authenticated document's activities and
+// X-Pagination metadata. Nil params uses the API's default of 20, newest first;
+// otherwise Page and PerPage follow ListParams defaults. Sort accepts id (oldest
+// first) or -id (newest first). Other ListParams filters do not apply.
+// GET /documents/{document_id}/activities.
+func (r *DocumentResource) ActivitiesWithParams(ctx context.Context, documentID string, params *models.ListParams) (*models.PaginatedResult[models.DocumentActivity], error) {
+	var out []models.DocumentActivity
+	req := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/activities")
+	if params != nil {
+		p := *params
+		p.Search = ""
+		applyListParams(req, &p)
+	}
+	resp, err := req.Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return paginated(out, resp), nil
 }
 
 // Download returns raw bytes for the authenticated document artifact named by
@@ -202,7 +222,7 @@ func (r *DocumentResource) Verify(ctx context.Context, signatureHash string) (*m
 // authentication; an empty accountID uses the configured default. Generation
 // continues asynchronously after the response. For DigitalCertificate signers,
 // it reads the template detail and returns
-// errors.ErrDigitalCertificateRequiresVirtual when placed fields make the
+// errors.ErrDigitalCertificateRequiresVirtual when placed signer fields make the
 // assignment collect.
 // POST /accounts/{account_id}/templates/{template_id}/documents.
 func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner, opts *models.CreateDocumentFromTemplateOptions) (*models.Document, error) {
@@ -230,7 +250,7 @@ func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, te
 // CostEstimate without creating a document. It requires client authentication;
 // an empty accountID uses the configured default. For DigitalCertificate
 // signers, it reads the template detail and returns
-// errors.ErrDigitalCertificateRequiresVirtual when placed fields make the
+// errors.ErrDigitalCertificateRequiresVirtual when placed signer fields make the
 // assignment collect.
 // POST /accounts/{account_id}/templates/{template_id}/documents/estimate-cost.
 func (r *DocumentResource) EstimateCostFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner) (*models.CostEstimate, error) {
@@ -275,14 +295,29 @@ func (r *DocumentResource) requireVirtualTemplateCertificate(ctx context.Context
 		return nil
 	}
 
-	// shortcut: template requests omit the derived method, so inspect fields until the API enforces this rule.
 	template, err := NewTemplateResource(r.http, accountID).Get(ctx, accountID, templateID)
 	if err != nil {
 		return err
 	}
+	roles := make(map[string]string, len(template.Roles))
+	for _, role := range template.Roles {
+		roles[role.ID] = role.AssignmentType
+	}
+	hasCertificateSigner = false
+	for _, signer := range signers {
+		if roles[signer.RoleID] == "Signer" && signer.VerificationMethod == models.VerificationMethodDigitalCertificate {
+			hasCertificateSigner = true
+			break
+		}
+	}
+	if !hasCertificateSigner {
+		return nil
+	}
 	for _, page := range template.Pages {
-		if len(page.Fields) > 0 {
-			return sdkerrors.ErrDigitalCertificateRequiresVirtual
+		for _, field := range page.Fields {
+			if roles[field.RoleID] == "Signer" {
+				return sdkerrors.ErrDigitalCertificateRequiresVirtual
+			}
 		}
 	}
 	return nil

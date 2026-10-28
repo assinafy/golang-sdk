@@ -170,7 +170,7 @@ func (r *WebhookResource) ListEndpointsByURL(ctx context.Context, accountID, end
 // endpoint, or three on paid plans; one past the limit is a 403 APIError and a
 // URL already used by the workspace is a 400. With SigningEnabled, the response
 // includes Secret once; store it before use. OAuth clients need webhooks:write
-// and cannot retrieve the secret later.
+// and can rotate, but cannot retrieve, an existing secret.
 // POST /accounts/{account_id}/webhooks/endpoints.
 func (r *WebhookResource) CreateEndpoint(ctx context.Context, accountID string, body *models.CreateWebhookEndpointRequest) (*models.WebhookEndpoint, error) {
 	return r.endpoint(ctx, http.MethodPost, r.endpointsPath(accountID), body)
@@ -184,7 +184,8 @@ func (r *WebhookResource) GetEndpoint(ctx context.Context, accountID, endpointID
 }
 
 // UpdateEndpoint changes only the non-nil fields of the request and returns the
-// updated WebhookEndpoint. OAuth clients need the webhooks:write scope.
+// updated WebhookEndpoint. Turning signing on generates and returns Secret once
+// when none exists; persist it before use. OAuth clients need webhooks:write.
 // PUT /accounts/{account_id}/webhooks/endpoints/{endpoint_id}.
 func (r *WebhookResource) UpdateEndpoint(ctx context.Context, accountID, endpointID string, body *models.UpdateWebhookEndpointRequest) (*models.WebhookEndpoint, error) {
 	return r.endpoint(ctx, http.MethodPut, r.endpointPath(accountID, endpointID, ""), body)
@@ -212,7 +213,7 @@ func (r *WebhookResource) DeleteEndpointByURL(ctx context.Context, accountID, en
 // GetEndpointSecret returns the endpoint's Standard Webhooks signing secret,
 // "whsec_" followed by the base64 key, for NewWebhookVerifier. Signing must be
 // enabled (otherwise a 400 APIError). API key or user token only; OAuth
-// applications cannot read secrets.
+// applications receive secrets on creation, enabling signing, or rotation.
 // GET /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret.
 func (r *WebhookResource) GetEndpointSecret(ctx context.Context, accountID, endpointID string) (string, error) {
 	return r.secret(ctx, http.MethodGet, r.endpointPath(accountID, endpointID, "/secret"))
@@ -220,7 +221,8 @@ func (r *WebhookResource) GetEndpointSecret(ctx context.Context, accountID, endp
 
 // RotateEndpointSecret replaces the endpoint's signing secret and returns the
 // new one. The old secret stops working immediately, so deploy the new secret to
-// the receiver at once. Signing must be enabled. API key or user token only.
+// the receiver at once. Signing must be enabled. It uses client authentication;
+// OAuth clients need webhooks:write.
 // POST /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret/rotate.
 func (r *WebhookResource) RotateEndpointSecret(ctx context.Context, accountID, endpointID string) (string, error) {
 	return r.secret(ctx, http.MethodPost, r.endpointPath(accountID, endpointID, "/secret/rotate"))

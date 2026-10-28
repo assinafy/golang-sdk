@@ -1,6 +1,11 @@
 // Package models contains the request and response types for the Assinafy API.
 package models
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // AssignmentMethod selects between virtual signing without input fields and
 // collect signing with input fields placed on document pages.
 type AssignmentMethod string
@@ -113,7 +118,8 @@ type CreateAssignmentRequest struct {
 // POST /documents/{id}/assignments/estimate-cost. Unlike assignment creation,
 // cost estimation does not accept signer IDs or invitation metadata.
 type EstimateAssignmentCostRequest struct {
-	// Method selects the "virtual" or "collect" flow being estimated.
+	// Method optionally selects the "virtual" or "collect" flow. Set it to
+	// the method you will use when creating the assignment for a matching estimate.
 	Method AssignmentMethod `json:"method,omitempty"`
 	// Signers describes the prospective signers' verification and delivery channels.
 	Signers []EstimateAssignmentCostSigner `json:"signers,omitempty"`
@@ -164,8 +170,8 @@ type AssignmentField struct {
 
 // CostEstimate is shared by the assignment, template-document, and resend
 // estimate-cost endpoints. The documented fields are always encoded so a zero
-// value such as has_sufficient_resources:false survives a JSON round trip; Total
-// and HasSufficientCredits are legacy resend-only fields and stay omitted when unset.
+// value such as has_sufficient_resources:false survives a JSON round trip.
+// Total and HasSufficientCredits describe a resend estimate.
 type CostEstimate struct {
 	// Documents is the number of document units consumed by assignment creation.
 	Documents float64 `json:"documents"`
@@ -181,8 +187,12 @@ type CostEstimate struct {
 	Breakdown []CostBreakdownItem `json:"breakdown"`
 	// DocumentBalance is the account's available document-unit balance.
 	DocumentBalance float64 `json:"document_balance"`
-	// CreditBalance is the account's available credit balance.
+	// CreditBalance is the account's available credit balance. A null balance
+	// decodes to zero; check CreditBalanceUnlimited to distinguish unlimited credits.
 	CreditBalance float64 `json:"credit_balance"`
+	// CreditBalanceUnlimited is true when the API explicitly sends a null
+	// credit_balance, indicating unlimited credits on a resend estimate.
+	CreditBalanceUnlimited bool `json:"-"`
 	// HasSufficientResources reports whether both balances cover the operation.
 	HasSufficientResources bool `json:"has_sufficient_resources"`
 	// BlockingReason is set when the operation cannot proceed (e.g. PendingPayment,
@@ -193,7 +203,43 @@ type CostEstimate struct {
 	// Total is the resend endpoint's total credit cost.
 	Total float64 `json:"total,omitempty"`
 	// HasSufficientCredits reports whether the resend can be funded.
-	HasSufficientCredits bool `json:"has_sufficient_credits,omitempty"`
+	HasSufficientCredits bool `json:"has_sufficient_credits"`
+}
+
+// UnmarshalJSON preserves the distinction between a numeric credit balance and
+// the null balance returned for unlimited resend credits.
+func (e *CostEstimate) UnmarshalJSON(data []byte) error {
+	type plain CostEstimate
+	var decoded struct {
+		plain
+		CreditBalance json.RawMessage `json:"credit_balance"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.CreditBalance) > 0 {
+		if bytes.Equal(bytes.TrimSpace(decoded.CreditBalance), []byte("null")) {
+			decoded.CreditBalanceUnlimited = true
+		} else if err := json.Unmarshal(decoded.CreditBalance, &decoded.plain.CreditBalance); err != nil {
+			return err
+		}
+	}
+	*e = CostEstimate(decoded.plain)
+	return nil
+}
+
+// MarshalJSON emits a null credit_balance for unlimited credits and preserves
+// numeric balances, including zero.
+func (e CostEstimate) MarshalJSON() ([]byte, error) {
+	type plain CostEstimate
+	var balance *float64
+	if !e.CreditBalanceUnlimited {
+		balance = &e.CreditBalance
+	}
+	return json.Marshal(struct {
+		plain
+		CreditBalance *float64 `json:"credit_balance"`
+	}{plain: plain(e), CreditBalance: balance})
 }
 
 // CostBreakdownItem is a single line in CostEstimate.Breakdown.

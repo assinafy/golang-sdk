@@ -386,31 +386,40 @@ func (c *HTTPClient) download(ctx context.Context, path string, query map[string
 }
 
 func newNetworkError(err error) *sdkerrors.NetworkError {
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		clean := *urlErr
-		clean.URL = redactSignerAccessCode(clean.URL)
-		err = &clean
-	}
-	return &sdkerrors.NetworkError{Err: err}
+	return &sdkerrors.NetworkError{Err: RedactTransportError(err)}
 }
 
-func redactSignerAccessCode(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		if i := strings.IndexByte(rawURL, '?'); i >= 0 {
-			return rawURL[:i] + "?[REDACTED]"
+// RedactTransportError removes query credentials from transport error messages
+// while preserving the underlying cause for errors.Is and errors.As.
+func RedactTransportError(err error) error {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	clean := *urlErr
+	if parsed, err := url.Parse(clean.URL); err == nil {
+		parsed.RawQuery = ""
+		parsed.User = nil
+		clean.URL = parsed.String()
+	} else if before, _, found := strings.Cut(clean.URL, "?"); found {
+		clean.URL = before
+	}
+	if clean.Err != nil {
+		// net/http includes the raw Location in errors raised before CheckRedirect.
+		if before, _, found := strings.Cut(clean.Err.Error(), "?"); found {
+			clean.Err = &redactedError{cause: clean.Err, message: before + "?[REDACTED]"}
 		}
-		return rawURL
 	}
-	query := u.Query()
-	if _, ok := query[signerAccessCodeParam]; !ok {
-		return rawURL
-	}
-	query.Set(signerAccessCodeParam, "REDACTED")
-	u.RawQuery = query.Encode()
-	return u.String()
+	return &clean
 }
+
+type redactedError struct {
+	cause   error
+	message string
+}
+
+func (e *redactedError) Error() string { return e.message }
+func (e *redactedError) Unwrap() error { return e.cause }
 
 func validatePath(path string) error {
 	if path == "/" {
@@ -438,6 +447,8 @@ func validatePath(path string) error {
 type envelope struct {
 	Status       json.RawMessage                 `json:"status"`
 	Message      string                          `json:"message"`
+	Code         string                          `json:"code"`
+	Errors       []sdkerrors.FieldError          `json:"errors"`
 	Data         json.RawMessage                 `json:"data"`
 	Restrictions []sdkerrors.DeletionRestriction `json:"restrictions"`
 }
@@ -493,6 +504,8 @@ func parseResponse(resp *http.Response, result any) (*Response, error) {
 		apiErr := &sdkerrors.APIError{
 			StatusCode:   statusCode,
 			Message:      env.Message,
+			Code:         env.Code,
+			Errors:       env.Errors,
 			Restrictions: env.Restrictions,
 			Headers:      resp.Header.Clone(),
 		}

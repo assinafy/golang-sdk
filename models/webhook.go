@@ -6,6 +6,10 @@ type WebhookSubscription struct {
 	Events []string `json:"events"`
 	// IsActive reports whether delivery is enabled.
 	IsActive bool `json:"is_active"`
+	// IsHeld reports whether delivery is paused after consecutive failures.
+	IsHeld bool `json:"is_held"`
+	// HeldSince is the pause's Unix timestamp, or nil while deliveries run.
+	HeldSince *Timestamp `json:"held_since"`
 	// URL is the nullable URI delivery endpoint.
 	URL *string `json:"url,omitempty"`
 	// Email is the nullable notification email configured for the subscription.
@@ -34,11 +38,14 @@ type UpdateWebhookSubscriptionRequest struct {
 // subscribed to an event receives it independently. An account has one endpoint,
 // or up to three on paid plans.
 type WebhookEndpoint struct {
+	// Resource is activity_event_subscription in single-resource responses.
+	Resource string `json:"resource,omitempty"`
 	// ID identifies the endpoint in the endpoint, secret and dispatch operations.
 	ID string `json:"id"`
 	// Name is the nullable label that tells endpoints apart.
 	Name *string `json:"name"`
-	// URL receives the events over http or https; it is unique per workspace.
+	// URL receives events and is unique per workspace. New or changed URLs
+	// require HTTPS; an existing HTTP URL can remain unchanged.
 	URL string `json:"url"`
 	// Email receives delivery-failure notices.
 	Email string `json:"email"`
@@ -46,11 +53,15 @@ type WebhookEndpoint struct {
 	Events []string `json:"events"`
 	// IsActive reports whether events are delivered.
 	IsActive bool `json:"is_active"`
+	// IsHeld reports whether delivery is paused after consecutive failures.
+	IsHeld bool `json:"is_held"`
+	// HeldSince is the pause's Unix timestamp, or nil while deliveries run.
+	HeldSince *Timestamp `json:"held_since"`
 	// SigningEnabled reports whether deliveries carry a Standard Webhooks
 	// webhook-signature header; see WebhookVerifier.VerifyRequest.
 	SigningEnabled bool `json:"signing_enabled"`
-	// Secret is returned only when creating an endpoint with signing enabled.
-	// Store it then: OAuth applications cannot read it again or rotate it.
+	// Secret is returned when creation or an update generates a signing secret.
+	// Persist it: OAuth can rotate the secret but cannot retrieve it afterward.
 	Secret string `json:"secret,omitempty"`
 	// CreatedAt is the endpoint creation date-time.
 	CreatedAt Timestamp `json:"created_at"`
@@ -61,7 +72,8 @@ type WebhookEndpoint struct {
 // CreateWebhookEndpointRequest is the body for
 // POST /accounts/{id}/webhooks/endpoints.
 type CreateWebhookEndpointRequest struct {
-	// URL is required and must differ from every other endpoint of the workspace.
+	// URL is required, must use HTTPS and a public address, and must differ from
+	// every other endpoint of the workspace.
 	URL string `json:"url"`
 	// Email is the required contact for delivery-failure notices.
 	Email string `json:"email"`
@@ -80,7 +92,8 @@ type CreateWebhookEndpointRequest struct {
 // PUT /accounts/{id}/webhooks/endpoints/{endpointId}. Only non-nil fields are
 // sent and changed.
 type UpdateWebhookEndpointRequest struct {
-	// URL replaces the delivery URL; it must not match another endpoint's URL.
+	// URL replaces the delivery URL with HTTPS on a public address; it must not
+	// match another endpoint's URL.
 	URL *string `json:"url,omitempty"`
 	// Email replaces the delivery-failure contact.
 	Email *string `json:"email,omitempty"`
@@ -116,6 +129,15 @@ type WebhookDispatch struct {
 	Payload Payload `json:"payload,omitempty"`
 	// Delivered reports whether the attempt succeeded.
 	Delivered bool `json:"delivered"`
+	// WebhookID is the webhook-id header shared by all attempts for this event
+	// and endpoint, or nil when unavailable.
+	WebhookID *string `json:"webhook_id"`
+	// Attempt is the one-based attempt number, or nil when unavailable.
+	Attempt *int `json:"attempt"`
+	// Kind is scheduled, probe (testing a paused endpoint), or manual.
+	Kind string `json:"kind"`
+	// WillRetry reports whether another attempt follows this one.
+	WillRetry bool `json:"will_retry"`
 	// HTTPStatus is the nullable response status from the subscriber endpoint.
 	HTTPStatus *int `json:"http_status,omitempty"`
 	// ResponseBody is the nullable subscriber response captured by Assinafy.

@@ -82,6 +82,8 @@ type Client struct {
 	Accounts *resources.AccountResource
 	// Documents provides authenticated document upload, lifecycle, artifact, and tag operations.
 	Documents *resources.DocumentResource
+	// Contracts provides authenticated contract terms, amendments, renewals and termination.
+	Contracts *resources.ContractResource
 	// Signers provides account-scoped and signer-access-code signer operations.
 	Signers *resources.SignerResource
 	// SignerDocuments provides signer-access-code document and batch-signing operations.
@@ -169,9 +171,10 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		accountID:       opts.AccountID,
 		Accounts:        resources.NewAccountResource(httpClient, opts.AccountID),
 		Documents:       resources.NewDocumentResource(httpClient, opts.AccountID),
+		Contracts:       resources.NewContractResource(httpClient, opts.AccountID),
 		Signers:         resources.NewSignerResource(httpClient, opts.AccountID),
 		SignerDocuments: resources.NewSignerDocumentResource(httpClient),
-		Assignments:     resources.NewAssignmentResource(httpClient),
+		Assignments:     resources.NewAssignmentResource(httpClient, opts.AccountID),
 		Webhooks:        resources.NewWebhookResource(httpClient, opts.AccountID),
 		Templates:       resources.NewTemplateResource(httpClient, opts.AccountID),
 		Tags:            resources.NewTagResource(httpClient, opts.AccountID),

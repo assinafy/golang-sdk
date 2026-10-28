@@ -5,6 +5,34 @@ All notable changes to the Assinafy Go SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-28
+
+### Added
+
+- Contract lifecycle management through `Client.Contracts`: list, read, set,
+  related instruments, renewal and termination, with nullable updates, exact
+  decimal amounts, concurrency preconditions and typed contract/amendment payloads.
+- `APIError.Code` and `APIError.Errors` retain conflict and field-validation details.
+- `Documents.ActivitiesWithParams` exposes activity pagination and sort order.
+- Template signer contact fields, document verification links and contract presence,
+  account webhook limits, webhook hold/retry details and contract email preferences.
+
+### Fixed
+
+- Assignment listing selects the workspace using `ListParams.AccountID` or the
+  configured account ID.
+- Certificate cost estimates accept the optional method when omitted.
+- Certificate template validation permits editor-only fields and ignores
+  verification settings on copy-receiver roles.
+- Unlimited resend credit balances retain JSON null and expose
+  `CostEstimate.CreditBalanceUnlimited`.
+
+### Security
+
+- OAuth userinfo calls refuse redirects to keep bearer tokens on their endpoint.
+- Transport errors redact query credentials from malformed redirect messages
+  while preserving their underlying causes for error inspection.
+
 ## [2.0.1] - 2026-10-19
 
 ### Fixed

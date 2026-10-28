@@ -133,6 +133,10 @@ func TestIntegrationUserGetNotificationPreferences(t *testing.T) {
 		models.NotificationPreferenceDocumentProcessingFailed,
 		models.NotificationPreferenceTemplateProcessingFailed,
 		models.NotificationPreferenceSignerWhatsAppFailed,
+		models.NotificationPreferenceContractRenewalNotice,
+		models.NotificationPreferenceContractExpiring,
+		models.NotificationPreferenceContractExpired,
+		models.NotificationPreferenceContractRenewed,
 	}
 	for _, key := range keys {
 		if _, ok := prefs[key]; !ok {

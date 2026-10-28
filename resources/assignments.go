@@ -16,21 +16,33 @@ import (
 // signer-access-code signing endpoints. Its methods follow the package-level
 // response and error contract.
 type AssignmentResource struct {
-	http *internal.HTTPClient
+	http      *internal.HTTPClient
+	accountID string
 }
 
-// NewAssignmentResource constructs an AssignmentResource.
-func NewAssignmentResource(httpClient *internal.HTTPClient) *AssignmentResource {
-	return &AssignmentResource{http: httpClient}
+// NewAssignmentResource constructs an AssignmentResource. The first optional
+// accountID supplies the default workspace for List.
+func NewAssignmentResource(httpClient *internal.HTTPClient, accountID ...string) *AssignmentResource {
+	r := &AssignmentResource{http: httpClient}
+	if len(accountID) > 0 {
+		r.accountID = accountID[0]
+	}
+	return r
 }
 
-// List returns a page of assignments for the authenticated user's current
-// account, paginated via the X-Pagination-* response headers. It sends page,
-// per-page, and any populated shared search and sort parameters.
+// List returns a page of assignments, paginated via X-Pagination-* headers.
+// params.AccountID overrides the configured account ID, sent as accountId.
+// API keys and user tokens require it; OAuth can use its token's workspace.
+// It sends page, per-page, and any populated shared search and sort parameters.
 // GET /assignments.
 func (r *AssignmentResource) List(ctx context.Context, params *models.ListParams) (*models.PaginatedResult[models.Assignment], error) {
 	var out []models.Assignment
 	req := r.http.NewRequest(http.MethodGet, "/assignments")
+	accountID := r.accountID
+	if params != nil {
+		accountID = resolveAccountID(params.AccountID, accountID)
+	}
+	req.WithQuery("accountId", accountID)
 	applyListParams(req, params)
 
 	resp, err := req.Execute(ctx, &out)
@@ -71,9 +83,10 @@ func (r *AssignmentResource) EstimateCost(ctx context.Context, documentID string
 }
 
 // EstimateCostWithRequest sends EstimateAssignmentCostRequest using client
-// authentication and returns CostEstimate without creating an assignment. A
-// non-virtual DigitalCertificate signer returns
-// errors.ErrDigitalCertificateRequiresVirtual before a request.
+// authentication and returns CostEstimate without creating an assignment. An
+// explicitly non-virtual DigitalCertificate method returns
+// errors.ErrDigitalCertificateRequiresVirtual before a request. Method may be
+// omitted; set it to the intended assignment method for a matching estimate.
 // POST /documents/{document_id}/assignments/estimate-cost.
 func (r *AssignmentResource) EstimateCostWithRequest(ctx context.Context, documentID string, body *models.EstimateAssignmentCostRequest) (*models.CostEstimate, error) {
 	return r.estimateCost(ctx, documentID, body)
@@ -110,6 +123,9 @@ func validateAssignmentCertificateMethod(body *models.CreateAssignmentRequest) e
 func validateEstimateCertificateMethod(body any) error {
 	switch request := body.(type) {
 	case *models.EstimateAssignmentCostRequest:
+		if request.Method == "" {
+			return nil
+		}
 		for _, signer := range request.Signers {
 			if err := requireVirtualDigitalCertificate(request.Method, signer.VerificationMethod); err != nil {
 				return err

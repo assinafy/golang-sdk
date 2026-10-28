@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
@@ -65,6 +66,35 @@ func TestDocumentsRename(t *testing.T) {
 	}
 	if doc.Name != "renamed.pdf" {
 		t.Errorf("name = %q", doc.Name)
+	}
+}
+
+func TestDocumentActivitiesPagination(t *testing.T) {
+	h, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.EscapedPath() != "/documents/doc%2F1/activities" {
+			t.Errorf("request = %s %s", r.Method, r.URL)
+		}
+		q := r.URL.Query()
+		if q.Get("page") != "2" || q.Get("per-page") != "10" || q.Get("sort") != "id" || len(q) != 3 {
+			t.Errorf("query = %v", q)
+		}
+		w.Header().Set("X-Pagination-Current-Page", "2")
+		w.Header().Set("X-Pagination-Per-Page", "10")
+		w.Header().Set("X-Pagination-Total-Count", "25")
+		w.Header().Set("X-Pagination-Page-Count", "3")
+		writeJSONResponse(w, `{"status":200,"data":[{"id":11,"event":"document_ready"}]}`)
+	})
+	params := models.ListParams{Page: 2, PerPage: 10, Sort: "id", Search: "ignored", AccountID: "ignored"}
+	before := params
+	got, err := NewDocumentResource(h, "").ActivitiesWithParams(context.Background(), "doc/1", &params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Data) != 1 || got.Data[0].ID != 11 || got.Pagination != (models.PaginationMeta{CurrentPage: 2, PerPage: 10, TotalCount: 25, PageCount: 3}) {
+		t.Fatalf("activities = %+v", got)
+	}
+	if !reflect.DeepEqual(params, before) {
+		t.Errorf("params changed: %+v", params)
 	}
 }
 
@@ -189,7 +219,7 @@ func TestTemplateDigitalCertificateRequiresVirtualMethod(t *testing.T) {
 				if r.Method != http.MethodGet || r.URL.EscapedPath() != "/accounts/acc1/templates/template1" {
 					t.Errorf("request = %s %s, want template detail", r.Method, r.URL.EscapedPath())
 				}
-				writeJSONResponse(w, `{"status":200,"data":{"id":"template1","name":"placed","status":"ready","roles":[],"tags":[],"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","pages":[{"id":"p1","number":1,"height":100,"width":100,"download_url":"https://example.test/p1","fields":[{"id":"placement1","field_id":"field1","role_id":"role1","label":"Sign","created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z"}]}]}}`)
+				writeJSONResponse(w, `{"status":200,"data":{"id":"template1","name":"placed","status":"ready","roles":[{"id":"role1","assignment_type":"Signer"}],"tags":[],"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","pages":[{"id":"p1","number":1,"height":100,"width":100,"download_url":"https://example.test/p1","fields":[{"id":"placement1","field_id":"field1","role_id":"role1","label":"Sign","created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z"}]}]}}`)
 			})
 			r := NewDocumentResource(httpClient, "acc1")
 			signers := []models.TemplateSigner{{RoleID: "role1", ID: "signer1", VerificationMethod: models.VerificationMethodDigitalCertificate}}
@@ -212,7 +242,7 @@ func TestVirtualTemplateAllowsDigitalCertificate(t *testing.T) {
 		requests++
 		switch requests {
 		case 1:
-			writeJSONResponse(w, `{"status":200,"data":{"id":"template1","name":"virtual","status":"ready","roles":[],"tags":[],"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","pages":[]}}`)
+			writeJSONResponse(w, `{"status":200,"data":{"id":"template1","name":"virtual","status":"ready","roles":[{"id":"role1","assignment_type":"Signer"}],"tags":[],"created_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:00:00Z","pages":[]}}`)
 		case 2:
 			if r.Method != http.MethodPost || r.URL.EscapedPath() != "/accounts/acc1/templates/template1/documents/estimate-cost" {
 				t.Errorf("request = %s %s", r.Method, r.URL.EscapedPath())
@@ -226,6 +256,84 @@ func TestVirtualTemplateAllowsDigitalCertificate(t *testing.T) {
 	}})
 	if err != nil || result.Documents != 1 || requests != 2 {
 		t.Fatalf("result = %+v, err = %v, requests = %d", result, err, requests)
+	}
+}
+
+func TestTemplateCertificateRoles(t *testing.T) {
+	for _, tc := range []struct {
+		name, certificateRole, fieldRole string
+	}{
+		{"editor fields", "signer", "editor"},
+		{"copy receiver settings", "copy", "signer"},
+		{"unknown role validated by API", "unknown", "signer"},
+	} {
+		for _, operation := range []string{"create", "estimate"} {
+			t.Run(tc.name+"/"+operation, func(t *testing.T) {
+				requests := 0
+				h, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+					requests++
+					if requests == 1 {
+						if r.Method != http.MethodGet || r.URL.Path != "/accounts/account/templates/template" {
+							t.Errorf("template request = %s %s", r.Method, r.URL)
+						}
+						_ = json.NewEncoder(w).Encode(map[string]any{"status": 200, "data": models.Template{
+							Roles: []models.TemplateRole{{ID: "signer", AssignmentType: "Signer"}, {ID: "editor", AssignmentType: "Editor"}, {ID: "copy", AssignmentType: "CopyReceiver"}},
+							Pages: []models.TemplatePage{{Fields: []models.TemplateFieldPlacement{{RoleID: tc.fieldRole}}}},
+						}})
+						return
+					}
+					path := "/accounts/account/templates/template/documents"
+					if operation == "estimate" {
+						path += "/estimate-cost"
+					}
+					if r.Method != http.MethodPost || r.URL.Path != path {
+						t.Errorf("document request = %s %s", r.Method, r.URL)
+					}
+					writeJSONResponse(w, `{"status":200,"data":{"id":"document","documents":1}}`)
+				})
+				r := NewDocumentResource(h, "account")
+				signers := []models.TemplateSigner{{RoleID: tc.certificateRole, ID: "signer", VerificationMethod: models.VerificationMethodDigitalCertificate}}
+				var err error
+				if operation == "create" {
+					_, err = r.CreateFromTemplate(context.Background(), "", "template", signers, nil)
+				} else {
+					_, err = r.EstimateCostFromTemplate(context.Background(), "", "template", signers)
+				}
+				if err != nil || requests != 2 {
+					t.Fatalf("error = %v, requests = %d", err, requests)
+				}
+			})
+		}
+	}
+}
+
+func TestTemplateSignerContactFields(t *testing.T) {
+	for _, operation := range []string{"create", "estimate"} {
+		t.Run(operation, func(t *testing.T) {
+			h, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				want := map[string]any{"role_id": "role"}
+				if operation == "create" {
+					want["email"] = "signer@example.test"
+					want["name"] = "Example Signer"
+					want["whatsapp_phone_number"] = "+15555550100"
+				}
+				if got := decodeContractBody(t, r); !reflect.DeepEqual(got, map[string]any{"signers": []any{want}}) {
+					t.Errorf("body = %#v", got)
+				}
+				writeJSONResponse(w, `{"status":200,"data":{"id":"document","documents":1}}`)
+			})
+			r := NewDocumentResource(h, "account")
+			signers := []models.TemplateSigner{{RoleID: "role", Email: "signer@example.test", Name: "Example Signer", WhatsAppPhoneNumber: "+15555550100"}}
+			var err error
+			if operation == "create" {
+				_, err = r.CreateFromTemplate(context.Background(), "", "template", signers, nil)
+			} else {
+				_, err = r.EstimateCostFromTemplate(context.Background(), "", "template", signers)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

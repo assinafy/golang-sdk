@@ -85,8 +85,16 @@ const (
 	NotificationPreferenceTemplateProcessingFailed NotificationPreference = "TemplateProcessingFailed"
 	// NotificationPreferenceSignerWhatsAppFailed controls WhatsApp-failure email.
 	NotificationPreferenceSignerWhatsAppFailed NotificationPreference = "SignerWhatsappFailed"
+	// NotificationPreferenceContractRenewalNotice controls contract notice-period email.
+	NotificationPreferenceContractRenewalNotice NotificationPreference = "ContractRenewalNotice"
+	// NotificationPreferenceContractExpiring controls 45-day and 30-day contract expiry notices.
+	NotificationPreferenceContractExpiring NotificationPreference = "ContractExpiring"
+	// NotificationPreferenceContractExpired controls contract-expired email.
+	NotificationPreferenceContractExpired NotificationPreference = "ContractExpired"
+	// NotificationPreferenceContractRenewed controls automatic contract-renewal email.
+	NotificationPreferenceContractRenewed NotificationPreference = "ContractRenewed"
 )
 
 // NotificationPreferences maps notification codes to whether their email is enabled.
-// Update requests may contain only the keys to change; responses contain all nine keys.
+// Update requests may contain only the keys to change; responses contain all preferences.
 type NotificationPreferences map[NotificationPreference]bool

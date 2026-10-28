@@ -692,6 +692,37 @@ func TestUserInfo(t *testing.T) {
 	}
 }
 
+func TestUserInfoDoesNotFollowRedirects(t *testing.T) {
+	for _, status := range []int{http.StatusFound, http.StatusTemporaryRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var requests atomic.Int32
+			destination := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Header.Get("Authorization") != "" {
+					t.Error("redirect exposed the bearer token")
+				}
+				_, _ = io.WriteString(w, `{"sub":"u1"}`)
+			})
+			source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, destination.URL, status)
+			}))
+			t.Cleanup(source.Close)
+			cfg := newTestConfig(source)
+			_, err := cfg.UserInfo(context.Background(), "fixture-access-token")
+			var oauthErr *Error
+			if !errors.As(err, &oauthErr) || oauthErr.StatusCode != status {
+				t.Fatalf("error = %v, want OAuth error status %d", err, status)
+			}
+			if got := requests.Load(); got != 0 {
+				t.Fatalf("redirect destination received %d requests", got)
+			}
+			if cfg.HTTPClient.CheckRedirect != nil {
+				t.Fatal("the configured HTTP client was modified")
+			}
+		})
+	}
+}
+
 func TestUserInfoSurfacesTheAPIEnvelopeError(t *testing.T) {
 	// An expired token is refused before the OAuth handler runs, so the body is
 	// the API's own envelope rather than a flat OAuth error.

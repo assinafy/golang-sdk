@@ -64,6 +64,14 @@ type Document struct {
 	IsClosed bool `json:"is_closed"`
 	// SigningURL is the nullable signer-facing URL returned in signing contexts.
 	SigningURL *string `json:"signing_url,omitempty"`
+	// VerificationCode is the certificate-page code for Documents.Verify, or nil
+	// before certification and on documents certified without a verification code.
+	VerificationCode *string `json:"verification_code"`
+	// VerificationURL is the public verification page, or nil before certification.
+	VerificationURL *string `json:"verification_url"`
+	// HasContract is returned by workspace document detail when contract tracking
+	// is available. Nil means unknown; true includes inherited contract terms.
+	HasContract *bool `json:"has_contract,omitempty"`
 	// DeclineReason is the nullable reason supplied when a signer declined.
 	DeclineReason *string `json:"decline_reason,omitempty"`
 	// DeclinedBy is the nullable signer that declined the document.
@@ -181,9 +189,16 @@ type TemplateEditorField struct {
 type TemplateSigner struct {
 	// RoleID is the required template role identifier.
 	RoleID string `json:"role_id"`
-	// ID is the existing signer identifier required for document creation; omit it for
-	// the estimate-cost endpoint, whose signer shape does not include an ID.
+	// ID is an existing signer identifier. Creation requires ID or Email; ID takes
+	// precedence. Estimates omit both and price only role and channel settings.
 	ID string `json:"id,omitempty"`
+	// Email reuses the workspace's signer with this address or creates one when
+	// ID is omitted. Ignored by the estimate-cost endpoint.
+	Email string `json:"email,omitempty"`
+	// Name is the full name for a signer created from Email.
+	Name string `json:"name,omitempty"`
+	// WhatsAppPhoneNumber is the telephone number for a signer created from Email.
+	WhatsAppPhoneNumber string `json:"whatsapp_phone_number,omitempty"`
 	// VerificationMethod is the optional API verification-method code.
 	VerificationMethod string `json:"verification_method,omitempty"`
 	// NotificationMethods contains optional API delivery-channel codes.

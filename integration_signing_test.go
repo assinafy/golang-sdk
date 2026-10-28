@@ -178,7 +178,6 @@ func TestIntegrationAssignmentLifecycle(t *testing.T) {
 }
 
 // TestIntegrationAssignmentsList exercises the account-wide assignments list.
-// A positive response requires authenticated user current-account context.
 func TestIntegrationAssignmentsList(t *testing.T) {
 	c, _ := integrationClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -186,12 +185,11 @@ func TestIntegrationAssignmentsList(t *testing.T) {
 
 	page, err := c.Assignments.List(ctx, &models.ListParams{PerPage: 5})
 	if err != nil {
-		if !sdkerrors.IsStatusCode(err, 400) || !strings.Contains(err.Error(), "contexto de conta") {
-			t.Fatalf("Assignments.List: unexpected error: %v", err)
-		}
-		t.Skipf("positive Assignments.List response requires a user token: %v", err)
+		t.Fatalf("Assignments.List: %v", err)
 	}
-	_ = page
+	if page == nil || page.Pagination.CurrentPage != 1 {
+		t.Fatalf("Assignments.List page = %+v", page)
+	}
 }
 
 func TestIntegrationListSigners(t *testing.T) {
@@ -258,27 +256,7 @@ func TestIntegrationDocumentUploadAndEstimateCost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	doc, err := c.Documents.Upload(ctx, "", minimalPDF(), "go-sdk-test.pdf", nil)
-	if err != nil {
-		t.Fatalf("Documents.Upload: %v", err)
-	}
-	t.Cleanup(func() {
-		if doc == nil {
-			return
-		}
-		// The API blocks deletion until metadata_processing finishes. Poll a
-		// few times before giving up so the workspace stays clean.
-		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cleanCancel()
-		for i := 0; i < 6; i++ {
-			err := c.Documents.Delete(cleanCtx, doc.ID)
-			if err == nil {
-				return
-			}
-			time.Sleep(2 * time.Second)
-		}
-		t.Errorf("cleanup: could not delete %s within timeout (still processing)", doc.ID)
-	})
+	doc := uploadReadyDoc(ctx, t, c, "", true)
 	if doc.ID == "" {
 		t.Fatal("expected non-empty document id")
 	}
@@ -294,11 +272,23 @@ func TestIntegrationDocumentUploadAndEstimateCost(t *testing.T) {
 		t.Errorf("estimate.Documents = %v, want 1", estimate.Documents)
 	}
 
-	// WhatsApp and certificate verification are priced even when the plan
+	optional, err := c.Assignments.EstimateCostWithRequest(ctx, doc.ID, &models.EstimateAssignmentCostRequest{
+		Signers: []models.EstimateAssignmentCostSigner{{VerificationMethod: models.VerificationMethodDigitalCertificate}},
+	})
+	if sdkerrors.IsStatusCode(err, 403) {
+		t.Log("certificate estimate is unavailable on this plan")
+	} else if err != nil {
+		t.Fatalf("certificate estimate without method: %v", err)
+	} else if optional.Documents != 1 {
+		t.Errorf("certificate estimate without method documents = %v", optional.Documents)
+	}
+
+	// WhatsApp, certificate and identity verification are priced even when the plan
 	// cannot use them; a plan gate answers 403.
 	for _, signer := range []models.EstimateAssignmentCostSigner{
 		{VerificationMethod: models.VerificationMethodWhatsApp, NotificationMethods: []string{models.NotificationMethodWhatsApp}},
 		{VerificationMethod: models.VerificationMethodDigitalCertificate, NotificationMethods: []string{models.NotificationMethodEmail}},
+		{VerificationMethod: models.VerificationMethodIDDocumentFaceMatchBasic, NotificationMethods: []string{models.NotificationMethodEmail}},
 	} {
 		estimate, err := c.Assignments.EstimateCostWithRequest(ctx, doc.ID, &models.EstimateAssignmentCostRequest{
 			Method:  models.MethodVirtual,
