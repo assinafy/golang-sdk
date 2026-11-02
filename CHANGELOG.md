@@ -5,6 +5,33 @@ All notable changes to the Assinafy Go SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-02
+
+### Added
+
+- `Signers.VerifyOTP` submits the one-time code delivered by email or WhatsApp.
+  `VerifyEmail` remains available as a deprecated alias.
+
+### Changed
+
+- The Portuguese and English integration guides provide a compact executable
+  PDF-to-certified-document flow and direct detailed payload users to `docs/API.md`.
+
+### Fixed
+
+- WhatsApp notification timestamps are documented as date-time values while the
+  decoder continues to accept numeric timestamps sent by some deployments.
+
+### Security
+
+- API and OAuth request origins require HTTPS, with plain HTTP limited to loopback
+  development fixtures.
+- Protected-resource discovery requires the returned resource identifier to match
+  the requested API root.
+- OAuth discovery refuses redirects before accepting authorization-server metadata.
+- Missing URLs in discovered OAuth metadata cannot inherit production endpoints.
+- Standard Webhooks verification requires the documented `whsec_` secret prefix.
+
 ## [2.1.0] - 2026-10-28
 
 ### Added

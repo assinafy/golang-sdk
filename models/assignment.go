@@ -281,7 +281,8 @@ type SignDocumentItem struct {
 // WhatsAppNotification is a row from
 // GET /documents/{id}/assignments/{aid}/whatsapp-notifications.
 type WhatsAppNotification struct {
-	// SentAt is the Unix time at which the delivery was attempted.
+	// SentAt is the date-time at which the delivery was attempted. Timestamp
+	// also accepts numeric values returned by some deployments.
 	SentAt Timestamp `json:"sent_at"`
 	// Header is the rendered WhatsApp message header.
 	Header string `json:"header"`

@@ -162,6 +162,7 @@ func TestSignerAccessCodeMethodsRejectEmptyCode(t *testing.T) {
 		},
 		"Signers.AcceptTerms":              func(c string) error { _, err := signers.AcceptTerms(ctx, c); return err },
 		"Signers.AcceptTermsOnly":          func(c string) error { return signers.AcceptTermsOnly(ctx, c) },
+		"Signers.VerifyOTP":                func(c string) error { return signers.VerifyOTP(ctx, c, "123456") },
 		"Signers.VerifyEmail":              func(c string) error { return signers.VerifyEmail(ctx, c, "123456") },
 		"Signers.ConfirmData":              func(c string) error { return signers.ConfirmData(ctx, "doc", c, nil) },
 		"Signers.ConfirmDataAndGet":        func(c string) error { _, err := signers.ConfirmDataAndGet(ctx, "doc", c, nil); return err },

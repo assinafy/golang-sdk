@@ -116,7 +116,7 @@ func TestWebhookVerifierVerifyRequest(t *testing.T) {
 	}{
 		{"valid", v, standardHeaders(standardSignature), standardBody, sent, nil},
 		{"one of several entries", v, standardHeaders("v1,AAAA " + standardSignature), standardBody, sent, nil},
-		{"secret without prefix", NewWebhookVerifier(standardSecret[len("whsec_"):]), standardHeaders(standardSignature), standardBody, sent, nil},
+		{"secret without prefix", NewWebhookVerifier(standardSecret[len("whsec_"):]), standardHeaders(standardSignature), standardBody, sent, sdkerrors.ErrInvalidInput},
 		{"within tolerance", v, standardHeaders(standardSignature), standardBody, sent.Add(WebhookTolerance), nil},
 		{"tampered body", v, standardHeaders(standardSignature), `{"test": 1}`, sent, ErrInvalidWebhookSignature},
 		{"other version", v, standardHeaders("v2" + standardSignature[2:]), standardBody, sent, ErrInvalidWebhookSignature},

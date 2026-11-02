@@ -49,6 +49,7 @@ func TestNewClientRejectsInvalidBaseURL(t *testing.T) {
 	for _, baseURL := range []string{
 		"relative/path",
 		"ftp://api.assinafy.com.br/v1",
+		"http://api.assinafy.com.br/v1",
 		"https://user:password@api.assinafy.com.br/v1",
 		"https://api.assinafy.com.br/v1?token=secret",
 		"https://api.assinafy.com.br/v1?",
@@ -60,6 +61,14 @@ func TestNewClientRejectsInvalidBaseURL(t *testing.T) {
 				t.Errorf("NewClient error = %v, want ErrInvalidBaseURL", err)
 			}
 		})
+	}
+}
+
+func TestNewClientAcceptsLoopbackHTTP(t *testing.T) {
+	for _, baseURL := range []string{"http://localhost:8080/v1", "http://127.0.0.1:8080/v1", "http://[::1]:8080/v1"} {
+		if _, err := NewClient(ClientOptions{BaseURL: baseURL}); err != nil {
+			t.Errorf("NewClient(%q): %v", baseURL, err)
+		}
 	}
 }
 

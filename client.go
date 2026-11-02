@@ -54,8 +54,8 @@ import (
 
 var (
 	// ErrInvalidBaseURL is returned when ClientOptions.BaseURL is not an
-	// absolute HTTP(S) URL suitable for API requests.
-	ErrInvalidBaseURL = errors.New("assinafy: BaseURL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	// absolute HTTPS URL, or loopback HTTP URL, suitable for API requests.
+	ErrInvalidBaseURL = errors.New("assinafy: BaseURL must be an absolute HTTPS URL or loopback HTTP URL without credentials, query, or fragment")
 	// ErrNoSigners is returned by UploadAndRequestSignatures when no signers are provided.
 	ErrNoSigners = errors.New("assinafy: at least one signer is required")
 	// ErrInvalidSigner is returned by UploadAndRequestSignatures when a signer
@@ -137,9 +137,10 @@ type ClientOptions struct {
 	// AccountID is the optional default account identifier. Account-scoped methods
 	// use it when their accountID argument is empty; an empty result is rejected locally.
 	AccountID string
-	// BaseURL overrides the API root. It must be an absolute HTTP(S) URL without
-	// credentials, query, or fragment and defaults to DefaultBaseURL. Use
-	// SandboxBaseURL for sandbox calls.
+	// BaseURL overrides the API root. It must be an absolute HTTPS URL without
+	// credentials, query, or fragment and defaults to DefaultBaseURL. Plain HTTP
+	// is accepted only for loopback development fixtures. Use SandboxBaseURL for
+	// sandbox calls.
 	BaseURL string
 	// Timeout is the per-request HTTP timeout. Zero or negative values use 30 seconds.
 	Timeout time.Duration
@@ -154,7 +155,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		opts.BaseURL = DefaultBaseURL
 	}
 	baseURL, err := url.Parse(opts.BaseURL)
-	if err != nil || (baseURL.Scheme != "http" && baseURL.Scheme != "https") || baseURL.Host == "" ||
+	if err != nil || !internal.IsHTTPSOrLoopbackURL(baseURL) || baseURL.Host == "" ||
 		baseURL.User != nil || baseURL.RawQuery != "" || baseURL.ForceQuery || strings.Contains(opts.BaseURL, "#") {
 		return nil, ErrInvalidBaseURL
 	}

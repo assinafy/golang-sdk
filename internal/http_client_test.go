@@ -27,6 +27,33 @@ type failingReadCloser struct{}
 func (failingReadCloser) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
 func (failingReadCloser) Close() error             { return nil }
 
+func TestIsHTTPSOrLoopbackURL(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want bool
+	}{
+		{"https://api.assinafy.com.br/v1", true},
+		{"http://localhost:8080", true},
+		{"http://127.0.0.1:8080", true},
+		{"http://[::1]:8080", true},
+		{"http://api.assinafy.com.br/v1", false},
+		{"https:///v1", false},
+		{"https://user:password@api.assinafy.com.br/v1", false},
+		{"ftp://localhost", false},
+	} {
+		u, err := url.Parse(tc.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := IsHTTPSOrLoopbackURL(u); got != tc.want {
+			t.Errorf("IsHTTPSOrLoopbackURL(%q) = %v, want %v", tc.raw, got, tc.want)
+		}
+	}
+	if IsHTTPSOrLoopbackURL(nil) {
+		t.Error("nil URL was accepted")
+	}
+}
+
 func TestHTTPClientParsesWrappedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

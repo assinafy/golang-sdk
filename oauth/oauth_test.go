@@ -194,6 +194,65 @@ func TestAuthorizationURLRejectsIncompleteRequests(t *testing.T) {
 	}
 }
 
+func TestOAuthEndpointsRejectNonLoopbackHTTP(t *testing.T) {
+	request := AuthorizationRequest{State: "state", CodeChallenge: "challenge"}
+	for _, tc := range []struct {
+		name string
+		call func() error
+	}{
+		{
+			"authorization",
+			func() error {
+				_, err := (&Config{
+					ClientID: "client", RedirectURI: "https://app.example.test/callback",
+					Endpoint: Endpoint{AuthorizationURL: "http://auth.example.test/oauth/authorize"},
+				}).AuthorizationURL(request)
+				return err
+			},
+		},
+		{
+			"token",
+			func() error {
+				_, err := (&Config{ClientID: "client", Endpoint: Endpoint{TokenURL: "http://api.example.test/oauth/token"}}).
+					Exchange(context.Background(), "code", "verifier")
+				return err
+			},
+		},
+		{
+			"revocation",
+			func() error {
+				return (&Config{ClientID: "client", Endpoint: Endpoint{RevocationURL: "http://api.example.test/oauth/revoke"}}).
+					Revoke(context.Background(), "token", HintRefreshToken)
+			},
+		},
+		{
+			"userinfo",
+			func() error {
+				_, err := (&Config{Endpoint: Endpoint{UserInfoURL: "http://api.example.test/oauth/userinfo"}}).
+					UserInfo(context.Background(), "token")
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(); !errors.Is(err, ErrInsecureEndpoint) {
+				t.Fatalf("error = %v, want ErrInsecureEndpoint", err)
+			}
+		})
+	}
+}
+
+func TestOAuthEndpointErrorsRedactURLCredentials(t *testing.T) {
+	_, err := (&Config{Endpoint: Endpoint{UserInfoURL: "https://fixture-user:fixture-secret@api.example.test/oauth/userinfo"}}).
+		UserInfo(context.Background(), "token")
+	if !errors.Is(err, ErrInsecureEndpoint) {
+		t.Fatalf("error = %v, want ErrInsecureEndpoint", err)
+	}
+	if strings.Contains(err.Error(), "fixture-user") || strings.Contains(err.Error(), "fixture-secret") {
+		t.Fatalf("error exposed URL credentials: %v", err)
+	}
+}
+
 func TestParseCallback(t *testing.T) {
 	cfg := &Config{Endpoint: Endpoint{Issuer: DefaultIssuer}}
 

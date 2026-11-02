@@ -385,12 +385,12 @@ func TestWebhookDispatchListParamsSetDefaults(t *testing.T) {
 
 func TestRequestModelEncoding(t *testing.T) {
 	t.Run("update signer government id", func(t *testing.T) {
-		governmentID := "12345678901"
+		governmentID := "00000000000"
 		got, err := json.Marshal(UpdateSignerRequest{GovernmentID: &governmentID})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(got) != `{"government_id":"12345678901"}` {
+		if string(got) != `{"government_id":"00000000000"}` {
 			t.Fatalf("body = %s", got)
 		}
 	})
@@ -623,10 +623,10 @@ func TestStartCertificateSignatureResultDecoding(t *testing.T) {
 	}
 
 	var complete CompleteCertificateSignatureResult
-	if err := json.Unmarshal([]byte(`{"signerName":"MARIA SILVA:39053344705"}`), &complete); err != nil {
+	if err := json.Unmarshal([]byte(`{"signerName":"EXAMPLE SIGNER:00000000000"}`), &complete); err != nil {
 		t.Fatal(err)
 	}
-	if complete.SignerName != "MARIA SILVA:39053344705" {
+	if complete.SignerName != "EXAMPLE SIGNER:00000000000" {
 		t.Fatalf("complete = %+v", complete)
 	}
 }

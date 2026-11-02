@@ -54,7 +54,11 @@ func (v *WebhookVerifier) verifyAt(header http.Header, body []byte, now time.Tim
 	if v == nil {
 		return fmt.Errorf("%w: nil WebhookVerifier", sdkerrors.ErrInvalidInput)
 	}
-	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(string(v.secret), "whsec_"))
+	secret := string(v.secret)
+	if !strings.HasPrefix(secret, "whsec_") {
+		return fmt.Errorf("%w: webhook secret must be whsec_ followed by a base64 key", sdkerrors.ErrInvalidInput)
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, "whsec_"))
 	if err != nil || len(key) == 0 {
 		return fmt.Errorf("%w: webhook secret must be whsec_ followed by a base64 key", sdkerrors.ErrInvalidInput)
 	}

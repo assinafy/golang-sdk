@@ -179,6 +179,9 @@ var (
 	// ErrIssuerMismatch means a callback's iss or discovery document's issuer
 	// is missing or does not match the requested authorization server.
 	ErrIssuerMismatch = errors.New("assinafy/oauth: authorization server issuer does not match")
+	// ErrResourceMismatch means a protected-resource discovery document's
+	// resource is missing or does not match the requested API root.
+	ErrResourceMismatch = errors.New("assinafy/oauth: protected resource does not match")
 	// ErrNoCode is returned by Config.ParseCallback when the callback carries
 	// neither an authorization code nor an error.
 	ErrNoCode = errors.New("assinafy/oauth: callback carries no authorization code")
@@ -187,6 +190,9 @@ var (
 	ErrNoRefreshToken = errors.New("assinafy/oauth: no refresh token; request the offline_access scope")
 	// ErrMissingToken is returned when a required token argument is empty.
 	ErrMissingToken = errors.New("assinafy/oauth: token is required")
+	// ErrInsecureEndpoint is returned when an OAuth request URL is not absolute
+	// HTTPS or loopback HTTP, or contains embedded credentials.
+	ErrInsecureEndpoint = errors.New("assinafy/oauth: endpoint must be an absolute HTTPS or loopback HTTP URL without credentials")
 	// ErrRefreshIndeterminate is wrapped around a refresh failure whose outcome
 	// is unknown: the request may have reached the server, which may have rotated
 	// the refresh token and retired the one sent. Sending that token again could
@@ -254,6 +260,8 @@ type Endpoint struct {
 	RevocationURL string
 	// UserInfoURL returns OpenID Connect claims about the authorizing user.
 	UserInfoURL string
+
+	discovered bool
 }
 
 // ProductionEndpoint returns the Assinafy production OAuth endpoints. They are
@@ -268,9 +276,12 @@ func ProductionEndpoint() Endpoint {
 	}
 }
 
-// resolve fills any empty field from the production defaults, so a Config that
-// overrides only one URL keeps working.
+// resolve fills empty fields on manually configured endpoints from production.
+// Discovered endpoints retain empty fields so they cannot cross environments.
 func (e Endpoint) resolve() Endpoint {
+	if e.discovered {
+		return e
+	}
 	defaults := ProductionEndpoint()
 	if e.Issuer == "" {
 		e.Issuer = defaults.Issuer
@@ -309,6 +320,7 @@ type Config struct {
 	// They must be within what the application is registered for.
 	Scopes []string
 	// Endpoint overrides individual OAuth URLs. The zero value uses production.
+	// Request URLs must use HTTPS; plain HTTP is accepted only on loopback hosts.
 	Endpoint Endpoint
 	// Resource is the RFC 8707 resource indicator sent to the authorization and
 	// token endpoints. An empty value sends DefaultResource; set it to "-" to
@@ -318,8 +330,8 @@ type Config struct {
 	// with a 30-second timeout that requires TLS 1.2 or newer. Never give it a
 	// transport that retries on its own: a retried refresh replays a retired
 	// refresh token and ends the connection, and a code can be exchanged once.
-	// Token, revocation and userinfo requests never follow a redirect, whatever its
-	// CheckRedirect says; a redirect is returned as an *Error. A refresh that
+	// Token, revocation, userinfo, and discovery requests never follow a redirect,
+	// whatever its CheckRedirect says; a redirect is returned as an *Error. A refresh that
 	// fails in any Transport other than an *http.Transport is treated as one
 	// that may have reached the server.
 	HTTPClient *http.Client
@@ -406,6 +418,9 @@ func (c *Config) AuthorizationURL(req AuthorizationRequest) (string, error) {
 	authorizeURL, err := url.Parse(c.Endpoint.resolve().AuthorizationURL)
 	if err != nil {
 		return "", fmt.Errorf("assinafy/oauth: parse authorization URL: %w", err)
+	}
+	if !internal.IsHTTPSOrLoopbackURL(authorizeURL) {
+		return "", fmt.Errorf("%w: %q", ErrInsecureEndpoint, redactQuery(authorizeURL))
 	}
 	authorizeURL.RawQuery = query.Encode()
 	return authorizeURL.String(), nil
@@ -686,6 +701,9 @@ func (c *Config) UserInfo(ctx context.Context, accessToken string) (*UserInfo, e
 	if err != nil {
 		return nil, fmt.Errorf("assinafy/oauth: build request: %w", err)
 	}
+	if !internal.IsHTTPSOrLoopbackURL(req.URL) {
+		return nil, fmt.Errorf("%w: %q", ErrInsecureEndpoint, redactQuery(req.URL))
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
@@ -702,6 +720,9 @@ func (c *Config) postForm(ctx context.Context, endpoint string, form url.Values,
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("assinafy/oauth: build request: %w", err)
+	}
+	if !internal.IsHTTPSOrLoopbackURL(req.URL) {
+		return fmt.Errorf("%w: %q", ErrInsecureEndpoint, redactQuery(req.URL))
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

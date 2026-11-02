@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -71,6 +73,14 @@ func TestDiscoverAuthorizationServer(t *testing.T) {
 	}
 }
 
+func TestDiscoveredEndpointDoesNotUseProductionFallbacks(t *testing.T) {
+	endpoint := (&AuthorizationServerMetadata{Issuer: "https://issuer.example.test"}).Endpoint().resolve()
+	if endpoint.Issuer != "https://issuer.example.test" || endpoint.AuthorizationURL != "" ||
+		endpoint.TokenURL != "" || endpoint.RevocationURL != "" || endpoint.UserInfoURL != "" {
+		t.Fatalf("endpoint = %+v", endpoint)
+	}
+}
+
 func TestDiscoverAuthorizationServerFallsBackToOpenIDConfiguration(t *testing.T) {
 	var requested []string
 	var issuer string
@@ -104,21 +114,23 @@ func TestDiscoverAuthorizationServerReportsTheOAuthFailure(t *testing.T) {
 }
 
 func TestDiscoverProtectedResource(t *testing.T) {
+	var resource string
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != protectedResourcePath {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		// RFC 8615: the bare metadata object, never the API's envelope.
-		_, _ = io.WriteString(w, `{"resource":"https://api.assinafy.com.br",
+		_, _ = fmt.Fprintf(w, `{"resource":%q,
 		  "authorization_servers":["https://auth.assinafy.com.br"],
-		  "scopes_supported":["documents:read"],"bearer_methods_supported":["header"]}`)
+		  "scopes_supported":["documents:read"],"bearer_methods_supported":["header"]}`, resource)
 	})
+	resource = srv.URL
 
-	metadata, err := DiscoverProtectedResource(context.Background(), srv.URL, srv.Client())
+	metadata, err := DiscoverProtectedResource(context.Background(), resource+"/", srv.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadata.Resource != DefaultResource || metadata.Issuer() != DefaultIssuer {
+	if metadata.Resource != resource || metadata.Issuer() != DefaultIssuer {
 		t.Fatalf("metadata = %+v", metadata)
 	}
 	if !reflect.DeepEqual(metadata.BearerMethodsSupported, []string{"header"}) {
@@ -131,9 +143,46 @@ func TestDiscoverProtectedResource(t *testing.T) {
 	}
 }
 
+func TestDiscoveryRequiresTheRequestedResource(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"resource":"https://other.example.test","authorization_servers":[]}`)
+	})
+	if _, err := DiscoverProtectedResource(context.Background(), srv.URL, srv.Client()); !errors.Is(err, ErrResourceMismatch) {
+		t.Fatalf("error = %v, want ErrResourceMismatch", err)
+	}
+}
+
 func TestDiscoveryRejectsANonAbsoluteBase(t *testing.T) {
 	if _, err := DiscoverProtectedResource(context.Background(), "not-a-url", nil); err == nil {
 		t.Fatal("expected an error for a relative base")
+	}
+}
+
+func TestDiscoveryRejectsNonLoopbackHTTP(t *testing.T) {
+	if _, err := DiscoverProtectedResource(context.Background(), "http://api.example.test", nil); !errors.Is(err, ErrInsecureEndpoint) {
+		t.Fatalf("error = %v, want ErrInsecureEndpoint", err)
+	}
+}
+
+func TestDiscoveryDoesNotFollowRedirects(t *testing.T) {
+	var destinationRequests atomic.Int32
+	destination := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		destinationRequests.Add(1)
+		_, _ = io.WriteString(w, `{"resource":"https://api.assinafy.com.br"}`)
+	})
+	source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	t.Cleanup(source.Close)
+
+	if _, err := DiscoverProtectedResource(context.Background(), source.URL, source.Client()); err == nil {
+		t.Fatal("expected redirect response to fail discovery")
+	}
+	if got := destinationRequests.Load(); got != 0 {
+		t.Fatalf("redirect destination received %d requests", got)
+	}
+	if source.Client().CheckRedirect != nil {
+		t.Fatal("configured HTTP client was modified")
 	}
 }
 

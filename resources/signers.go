@@ -180,19 +180,27 @@ func (r *SignerResource) acceptTerms(ctx context.Context, signerAccessCode strin
 	return err
 }
 
-// VerifyEmail submits the one-time code sent to the signer by email (Email
-// verification) or WhatsApp (Whatsapp verification) and returns an
-// envelope-only success. The signer credential is supplied as the
+// VerifyOTP submits the one-time code sent to the signer by email or WhatsApp
+// and returns an envelope-only success. The signer credential is supplied as the
 // signer-access-code query parameter; only the required verification-code
 // travels in the body: {"verification-code": string}.
 // POST /verify.
-func (r *SignerResource) VerifyEmail(ctx context.Context, signerAccessCode, verificationCode string) error {
+func (r *SignerResource) VerifyOTP(ctx context.Context, signerAccessCode, verificationCode string) error {
 	body := map[string]string{"verification-code": verificationCode}
 	_, err := r.http.NewRequest(http.MethodPost, "/verify").
 		WithSignerAccessCode(signerAccessCode).
 		WithBody(body).
 		Execute(ctx, nil)
 	return err
+}
+
+// VerifyEmail submits the email or WhatsApp one-time code and returns an
+// envelope-only success.
+// POST /verify.
+//
+// Deprecated: use VerifyOTP, which names both supported delivery channels.
+func (r *SignerResource) VerifyEmail(ctx context.Context, signerAccessCode, verificationCode string) error {
+	return r.VerifyOTP(ctx, signerAccessCode, verificationCode)
 }
 
 // ConfirmData authenticates with signerAccessCode, sends ConfirmSignerDataRequest,

@@ -667,14 +667,14 @@ func TestAdditionalMethodWireContracts(t *testing.T) {
 		},
 		{
 			name: "signer create", method: http.MethodPost, path: "/accounts/acc%2F1/signers", authenticated: true,
-			jsonBody: map[string]string{"full_name": "Ada", "email": "signer@example.com", "government_id": "39053344705"},
-			response: `{"status":200,"data":{"resource":"signer","id":"signer-1","full_name":"Ada","email":"signer@example.com","whatsapp_phone_number":null,"government_id":"39053344705","has_accepted_terms":false}}`,
+			jsonBody: map[string]string{"full_name": "Ada", "email": "signer@example.com", "government_id": "00000000000"},
+			response: `{"status":200,"data":{"resource":"signer","id":"signer-1","full_name":"Ada","email":"signer@example.com","whatsapp_phone_number":null,"government_id":"00000000000","has_accepted_terms":false}}`,
 			call: func(h *internal.HTTPClient) (any, error) {
-				email, governmentID := "signer@example.com", "39053344705"
+				email, governmentID := "signer@example.com", "00000000000"
 				return NewSignerResource(h, "acc/1").Create(ctx, "", &models.CreateSignerRequest{FullName: "Ada", Email: &email, GovernmentID: &governmentID})
 			},
 			want: func() *models.Signer {
-				email, governmentID := "signer@example.com", "39053344705"
+				email, governmentID := "signer@example.com", "00000000000"
 				return &models.Signer{Resource: "signer", ID: "signer-1", FullName: "Ada", Email: &email, GovernmentID: &governmentID}
 			}(),
 		},

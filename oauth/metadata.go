@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/assinafy/golang-sdk/v2/internal"
 )
 
 // Well-known paths for the two discovery documents.
@@ -58,6 +60,7 @@ func (m *AuthorizationServerMetadata) Endpoint() Endpoint {
 		TokenURL:         m.TokenEndpoint,
 		RevocationURL:    m.RevocationEndpoint,
 		UserInfoURL:      m.UserInfoEndpoint,
+		discovered:       true,
 	}
 }
 
@@ -126,9 +129,13 @@ func DiscoverProtectedResource(ctx context.Context, apiRoot string, httpClient *
 	if apiRoot == "" {
 		apiRoot = DefaultResource
 	}
+	apiRoot = strings.TrimRight(apiRoot, "/")
 	var metadata ProtectedResourceMetadata
 	if err := fetchMetadata(ctx, &Config{HTTPClient: httpClient}, apiRoot, protectedResourcePath, &metadata); err != nil {
 		return nil, err
+	}
+	if metadata.Resource != apiRoot {
+		return nil, ErrResourceMismatch
 	}
 	return &metadata, nil
 }
@@ -140,6 +147,9 @@ func fetchMetadata(ctx context.Context, cfg *Config, base, wellKnownPath string,
 	if err != nil || origin.Scheme == "" || origin.Host == "" {
 		return fmt.Errorf("assinafy/oauth: %q is not an absolute URL", base)
 	}
+	if !internal.IsHTTPSOrLoopbackURL(origin) {
+		return fmt.Errorf("%w: %q", ErrInsecureEndpoint, redactQuery(origin))
+	}
 	origin.Path, origin.RawQuery, origin.Fragment = wellKnownPath, "", ""
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin.String(), nil)
@@ -147,5 +157,7 @@ func fetchMetadata(ctx context.Context, cfg *Config, base, wellKnownPath string,
 		return fmt.Errorf("assinafy/oauth: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	return cfg.do(cfg.httpClient(), req, result)
+	client := *cfg.httpClient()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return cfg.do(&client, req, result)
 }

@@ -111,7 +111,7 @@ func TestAcceptTermsSendsAccessCodeAsQuery(t *testing.T) {
 	}
 }
 
-func TestVerifyEmailSendsAccessCodeAsQuery(t *testing.T) {
+func TestVerifyOTPSendsAccessCodeAsQuery(t *testing.T) {
 	httpClient, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/verify" {
 			t.Errorf("method/path = %s %q", r.Method, r.URL.Path)
@@ -136,8 +136,8 @@ func TestVerifyEmailSendsAccessCodeAsQuery(t *testing.T) {
 	})
 
 	r := NewSignerResource(httpClient, "")
-	if err := r.VerifyEmail(context.Background(), "code-1", "123456"); err != nil {
-		t.Fatalf("VerifyEmail: %v", err)
+	if err := r.VerifyOTP(context.Background(), "code-1", "123456"); err != nil {
+		t.Fatalf("VerifyOTP: %v", err)
 	}
 }
 
@@ -210,7 +210,7 @@ func TestCertificateSignatureHandshake(t *testing.T) {
 			if got := decodeContractBody(t, r); !reflect.DeepEqual(got, want) {
 				t.Errorf("body = %#v, want %#v", got, want)
 			}
-			writeJSONResponse(w, `{"status":200,"data":{"signerName":"MARIA SILVA:39053344705"}}`)
+			writeJSONResponse(w, `{"status":200,"data":{"signerName":"EXAMPLE SIGNER:00000000000"}}`)
 		})
 
 		result, err := NewSignerResource(httpClient, "acc1").CompleteCertificateSignature(
@@ -220,7 +220,7 @@ func TestCertificateSignatureHandshake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.SignerName != "MARIA SILVA:39053344705" {
+		if result.SignerName != "EXAMPLE SIGNER:00000000000" {
 			t.Fatalf("result = %+v", result)
 		}
 	})
