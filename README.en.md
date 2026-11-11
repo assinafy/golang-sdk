@@ -147,6 +147,8 @@ signers with `Embedded: true` and Email or WhatsApp verification. OAuth cannot m
 these sessions. Load the returned URL without logging it; each opening needs a new session.
 [Payloads and flows](docs/API.md#envelope-request-and-response-payloads).
 
+Template creation with `IdempotencyKey` delegates validation and retry recovery to the API.
+
 ## Marketplace OAuth
 
 Use `oauth.Config` with authorization code, PKCE S256, and fresh `state` per attempt.

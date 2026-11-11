@@ -147,6 +147,8 @@ com signatário `Embedded: true` e verificação Email ou WhatsApp. OAuth não c
 sessões. Carregue a URL devolvida sem registrá-la; cada abertura exige nova sessão.
 [Payloads e fluxos](docs/API.md#envelope-request-and-response-payloads).
 
+Criação por template com `IdempotencyKey` delega validação e recuperação de tentativas à API.
+
 ## OAuth de marketplace
 
 Use `oauth.Config` com autorização por código, PKCE S256 e um `state` novo por

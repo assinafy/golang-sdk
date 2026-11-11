@@ -151,3 +151,36 @@ func TestTemplateIdempotencyAndSpendingCeiling(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTemplateIdempotencyRecoversAfterTemplateChanges(t *testing.T) {
+	changed, reads, creates := false, 0, 0
+	h, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			reads++
+			fields := `[]`
+			if changed {
+				fields = `[{"role_id":"role"}]`
+			}
+			writeJSONResponse(w, `{"status":200,"data":{"roles":[{"id":"role","assignment_type":"Signer"}],"pages":[{"fields":`+fields+`}]}}`)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/accounts/account/templates/template/documents" || r.Header.Get("Idempotency-Key") != "saved-key" {
+			t.Errorf("unexpected template creation: %s %s", r.Method, r.URL)
+		}
+		creates++
+		writeJSONResponse(w, `{"status":200,"data":{"id":"original-document"}}`)
+	})
+	r := NewDocumentResource(h, "account")
+	signers := []models.TemplateSigner{{ID: "signer", RoleID: "role", VerificationMethod: models.VerificationMethodDigitalCertificate}}
+	opts := &models.CreateDocumentFromTemplateOptions{IdempotencyKey: "saved-key"}
+	for attempt := 0; attempt < 2; attempt++ {
+		doc, err := r.CreateFromTemplate(context.Background(), "", "template", signers, opts)
+		if err != nil || doc.ID != "original-document" {
+			t.Fatalf("attempt %d: document = %v, error = %v", attempt, doc, err)
+		}
+		changed = true
+	}
+	if reads != 0 || creates != 2 {
+		t.Fatalf("template reads = %d, creation requests = %d; want 0 and 2", reads, creates)
+	}
+}

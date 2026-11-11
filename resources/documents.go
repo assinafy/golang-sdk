@@ -251,15 +251,18 @@ func (r *DocumentResource) Verify(ctx context.Context, signatureHash string) (*m
 // CreateFromTemplate sends CreateDocumentFromTemplateOptions with the required
 // signer-role mappings and returns the created Document. It requires client
 // authentication; an empty accountID uses the configured default. Generation
-// continues asynchronously after the response. For DigitalCertificate signers,
-// it reads the template detail and returns
+// continues asynchronously after the response. Without an idempotency key,
+// DigitalCertificate signers trigger a template read that returns
 // errors.ErrDigitalCertificateRequiresVirtual when placed signer fields make the
-// assignment collect.
+// assignment collect. Keyed requests let the API validate or recover the original
+// document without checking mutable template fields first.
 // POST /accounts/{account_id}/templates/{template_id}/documents.
 func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, templateID string, signers []models.TemplateSigner, opts *models.CreateDocumentFromTemplateOptions) (*models.Document, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
-	if err := r.requireVirtualTemplateCertificate(ctx, accountID, templateID, signers); err != nil {
-		return nil, err
+	if opts == nil || opts.IdempotencyKey == "" {
+		if err := r.requireVirtualTemplateCertificate(ctx, accountID, templateID, signers); err != nil {
+			return nil, err
+		}
 	}
 
 	body := models.CreateDocumentFromTemplateOptions{Signers: nonNil(signers)}
