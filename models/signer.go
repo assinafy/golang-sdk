@@ -87,18 +87,18 @@ type UpdateSignerRequest struct {
 }
 
 // ConfirmSignerDataRequest is the body for PUT /documents/{id}/signers/confirm-data.
-// Every field is optional; a nil field is not sent and leaves the signer's
-// current value unchanged. The OpenAPI reference documents full_name, email, and
-// government_id, while the live API also accepts whatsapp_phone_number and
-// has_accepted_terms, so all five are exposed here.
+// Email and WhatsAppPhoneNumber are required for their corresponding verification
+// or notification channel. A missing contact is saved; an existing one must match.
+// Nil fields are omitted. FullName and GovernmentID are retained legacy fields
+// whose handling is not specified by this operation; use Signers.Update to set them.
 type ConfirmSignerDataRequest struct {
-	// FullName optionally confirms or replaces the display name.
+	// FullName is a legacy optional name; support by this operation is unverified.
 	FullName *string `json:"full_name,omitempty"`
-	// Email optionally confirms or replaces the email-formatted address.
+	// Email supplies the signing email, which must match an existing address.
 	Email *string `json:"email,omitempty"`
-	// GovernmentID optionally confirms or replaces the government identifier.
+	// GovernmentID is a legacy identifier; support by this operation is unverified.
 	GovernmentID *string `json:"government_id,omitempty"`
-	// WhatsAppPhoneNumber optionally confirms or replaces the telephone number.
+	// WhatsAppPhoneNumber supplies the signing phone, which must match an existing number.
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
 	// HasAcceptedTerms optionally records terms acceptance for this signing session.
 	HasAcceptedTerms *bool `json:"has_accepted_terms,omitempty"`
@@ -159,6 +159,9 @@ type SignerReference struct {
 	VerificationMethod string `json:"verification_method,omitempty"`
 	// NotificationMethods contains optional API delivery-channel codes.
 	NotificationMethods []string `json:"notification_methods,omitempty"`
+	// Embedded enables iframe signing with a short-lived embed session. Requires
+	// the Embed feature and Email or Whatsapp verification; invitations still send.
+	Embedded bool `json:"embedded,omitempty"`
 	// Step controls sequential signing order. Signers sharing a step sign in
 	// parallel; a step is activated only after every signer in the previous
 	// step has signed. When supplied, every signer must supply it and the

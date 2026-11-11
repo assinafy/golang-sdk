@@ -52,6 +52,12 @@ type APIError struct {
 	Message string `json:"message"`
 	// Code identifies an API failure, such as ContractChanged for a stale update.
 	Code string `json:"code,omitempty"`
+	// TotalCredits is the requested cost returned with CreditCeilingExceeded.
+	// Nil means the response did not include a cost.
+	TotalCredits *float64 `json:"total_credits,omitempty"`
+	// MaxTotalCredits is the rejected credit ceiling. A pointer to zero is a
+	// zero-credit ceiling; nil means the response did not include one.
+	MaxTotalCredits *float64 `json:"max_total_credits,omitempty"`
 	// Errors contains individual field or request-wide validation failures.
 	Errors []FieldError `json:"errors,omitempty"`
 	// Data contains optional structured error details from the response envelope.

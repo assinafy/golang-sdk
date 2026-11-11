@@ -138,6 +138,9 @@ type WebhookDispatch struct {
 	Kind string `json:"kind"`
 	// WillRetry reports whether another attempt follows this one.
 	WillRetry bool `json:"will_retry"`
+	// DurationMS is the request duration in milliseconds; nil when no request
+	// was sent or the entry predates duration measurements.
+	DurationMS *int `json:"duration_ms"`
 	// HTTPStatus is the nullable response status from the subscriber endpoint.
 	HTTPStatus *int `json:"http_status,omitempty"`
 	// ResponseBody is the nullable subscriber response captured by Assinafy.
@@ -210,4 +213,19 @@ type WebhookPayload struct {
 	Object map[string]any `json:"object,omitempty"`
 	// AccountID identifies the account that emitted the event.
 	AccountID string `json:"account_id"`
+}
+
+// RotateWebhookSecretRequest configures signing-secret rotation.
+type RotateWebhookSecretRequest struct {
+	// KeepPrevious keeps the replaced secret signing beside the new one for 24
+	// hours. Another rotation immediately retires any older retained secret.
+	KeepPrevious bool `json:"keep_previous"`
+}
+
+// WebhookSecret is the signing secret returned by rotation.
+type WebhookSecret struct {
+	// Secret is whsec_ followed by the base64-encoded signing key; persist it.
+	Secret string `json:"secret"`
+	// PreviousSecretExpiresAt is present only when KeepPrevious was true.
+	PreviousSecretExpiresAt *Timestamp `json:"previous_secret_expires_at,omitempty"`
 }

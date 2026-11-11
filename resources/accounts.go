@@ -49,11 +49,64 @@ func (r *AccountResource) Create(ctx context.Context, body *models.CreateAccount
 // accountID uses the resource's configured default.
 // GET /accounts/{account_id}.
 func (r *AccountResource) Get(ctx context.Context, accountID string) (*models.Account, error) {
+	return r.GetWithParams(ctx, accountID, nil)
+}
+
+// GetWithParams returns an authenticated Account with optional expansions.
+// Expand=signing_features includes current plan entitlements. OAuth needs
+// account:read; an empty accountID uses the configured default.
+// GET /accounts/{account_id}.
+func (r *AccountResource) GetWithParams(ctx context.Context, accountID string, params *models.AccountGetParams) (*models.Account, error) {
 	accountID = resolveAccountID(accountID, r.accountID)
 
 	var out models.Account
 	path := "/accounts/" + url.PathEscape(accountID)
-	if _, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out); err != nil {
+	req := r.http.NewRequest(http.MethodGet, path)
+	if params != nil {
+		req.WithQuery("expand", params.Expand)
+	}
+	if _, err := req.Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Usage returns the workspace plan and remaining document and credit allowances.
+// It uses API-key or user-token authentication; third-party OAuth applications
+// receive 403 regardless of scopes. An empty accountID uses the default.
+// GET /accounts/{account_id}/usage.
+func (r *AccountResource) Usage(ctx context.Context, accountID string) (*models.AccountUsage, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+	var out models.AccountUsage
+	if _, err := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/usage").Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetNotificationPolicy returns the workspace notification rules for a member.
+// Editable identifies owners who may change them. It uses API-key or user-token
+// authentication; third-party OAuth applications receive 403. An empty accountID
+// uses the configured default.
+// GET /accounts/{account_id}/notification-policy.
+func (r *AccountResource) GetNotificationPolicy(ctx context.Context, accountID string) (*models.NotificationPolicy, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+	var out models.NotificationPolicy
+	if _, err := r.http.NewRequest(http.MethodGet, "/accounts/"+url.PathEscape(accountID)+"/notification-policy").Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateNotificationPolicy merges supplied rules and returns the complete policy.
+// It requires a workspace owner's API key or user token; third-party OAuth is
+// refused. False event rules suppress all channels except the identity-review
+// email. An empty accountID uses the configured default.
+// PUT /accounts/{account_id}/notification-policy.
+func (r *AccountResource) UpdateNotificationPolicy(ctx context.Context, accountID string, body *models.UpdateNotificationPolicyRequest) (*models.NotificationPolicy, error) {
+	accountID = resolveAccountID(accountID, r.accountID)
+	var out models.NotificationPolicy
+	if _, err := r.http.NewRequest(http.MethodPut, "/accounts/"+url.PathEscape(accountID)+"/notification-policy").WithBody(body).Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

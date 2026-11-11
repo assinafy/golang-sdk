@@ -82,8 +82,8 @@ func (r *DocumentResource) List(ctx context.Context, accountID string, params *m
 }
 
 // Search returns matching Document payloads ordered by relevance with
-// X-Pagination metadata. The current contract uses search and status; method,
-// tags, and sort are compatibility filters carried by ListParams. It requires
+// X-Pagination metadata. The current contract uses search, status, envelope_id
+// and sort; method and tags are compatibility filters carried by ListParams. It requires
 // client authentication and uses the default for an empty accountID.
 // GET /accounts/{account_id}/documents/search.
 func (r *DocumentResource) Search(ctx context.Context, accountID string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
@@ -91,7 +91,7 @@ func (r *DocumentResource) Search(ctx context.Context, accountID string, params 
 }
 
 // listDocuments issues an account-scoped document listing at suffix, applying the
-// shared pagination parameters plus the status, method, and tag filters.
+// shared pagination parameters plus status, method, envelope, and tag filters.
 func (r *DocumentResource) listDocuments(ctx context.Context, accountID, suffix string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
 	accountID = resolveAccountID(accountID, r.accountID)
 
@@ -101,6 +101,7 @@ func (r *DocumentResource) listDocuments(ctx context.Context, accountID, suffix 
 	if params != nil {
 		req.WithQuery("status", params.Status)
 		req.WithQuery("method", params.Method)
+		req.WithQuery("envelope_id", params.EnvelopeID)
 		if len(params.Tags) > 0 {
 			req.WithQuery("tags", strings.Join(params.Tags, ","))
 		}
@@ -116,8 +117,18 @@ func (r *DocumentResource) listDocuments(ctx context.Context, accountID, suffix 
 // Get returns the authenticated Document payload for documentID.
 // GET /documents/{document_id}.
 func (r *DocumentResource) Get(ctx context.Context, documentID string) (*models.Document, error) {
+	return r.GetWithParams(ctx, documentID, nil)
+}
+
+// GetWithParams returns the authenticated document with optional envelope details.
+// GET /documents/{document_id}.
+func (r *DocumentResource) GetWithParams(ctx context.Context, documentID string, params *models.DocumentGetParams) (*models.Document, error) {
 	var doc models.Document
-	_, err := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID)).Execute(ctx, &doc)
+	req := r.http.NewRequest(http.MethodGet, "/documents/"+url.PathEscape(documentID))
+	if params != nil {
+		req.WithQuery("expand", params.Expand)
+	}
+	_, err := req.Execute(ctx, &doc)
 	if err != nil {
 		return nil, err
 	}
@@ -194,14 +205,34 @@ func (r *DocumentResource) Download(ctx context.Context, documentID, artifact st
 // thumbnail that is not yet available produces an API error.
 // GET /documents/{document_id}/thumbnail.
 func (r *DocumentResource) Thumbnail(ctx context.Context, documentID string) ([]byte, error) {
-	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/thumbnail", nil)
+	return r.ThumbnailWithArtifact(ctx, documentID, "")
+}
+
+// ThumbnailWithArtifact returns the authenticated first-page thumbnail. Set
+// artifact to certificated for the signed document; other values use the original.
+// Signed renders require a certificated document and workspace authentication.
+// A render still pending after thirty seconds returns 503 with Retry-After.
+// GET /documents/{document_id}/thumbnail.
+func (r *DocumentResource) ThumbnailWithArtifact(ctx context.Context, documentID, artifact string) ([]byte, error) {
+	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/thumbnail", map[string]string{"artifact": artifact})
 }
 
 // DownloadPage returns one authenticated rendered page as raw bytes. An unknown
 // document or page produces an API error.
 // GET /documents/{document_id}/pages/{page_id}/download.
 func (r *DocumentResource) DownloadPage(ctx context.Context, documentID, pageID string) ([]byte, error) {
-	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/pages/"+url.PathEscape(pageID)+"/download", nil)
+	return r.DownloadPageWithArtifact(ctx, documentID, pageID, "")
+}
+
+// DownloadPageWithArtifact returns an authenticated rendered page. Set artifact
+// to certificated for its signatures and stamps, or leave it empty for the original.
+// Signed renders require a certificated document and workspace authentication;
+// certificate appendices have no page ID and the certificate seal is only in PAdES.
+// Rendering capacity or a render still pending after thirty seconds returns 503
+// with Retry-After. Other artifact values are ignored by the API.
+// GET /documents/{document_id}/pages/{page_id}/download.
+func (r *DocumentResource) DownloadPageWithArtifact(ctx context.Context, documentID, pageID, artifact string) ([]byte, error) {
+	return r.http.Download(ctx, "/documents/"+url.PathEscape(documentID)+"/pages/"+url.PathEscape(pageID)+"/download", map[string]string{"artifact": artifact})
 }
 
 // Verify validates signatureHash without requiring a client credential and
@@ -239,7 +270,11 @@ func (r *DocumentResource) CreateFromTemplate(ctx context.Context, accountID, te
 
 	var out models.Document
 	path := "/accounts/" + url.PathEscape(accountID) + "/templates/" + url.PathEscape(templateID) + "/documents"
-	_, err := r.http.NewRequest(http.MethodPost, path).WithBody(body).Execute(ctx, &out)
+	req := r.http.NewRequest(http.MethodPost, path).WithBody(body)
+	if body.IdempotencyKey != "" {
+		req.WithHeader("Idempotency-Key", body.IdempotencyKey)
+	}
+	_, err := req.Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}

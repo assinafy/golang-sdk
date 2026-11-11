@@ -27,6 +27,9 @@ type ListParams struct {
 	// the client's default, or the OAuth token's workspace when no default is set.
 	// Other resource methods take their account ID as an argument and ignore it.
 	AccountID string
+	// EnvelopeID limits workspace or signer document lists/searches to members
+	// of one envelope. Other resource methods ignore it.
+	EnvelopeID string
 	// Page is one-based; values less than one default to 1.
 	Page int
 	// PerPage defaults to 25 and is clamped to the API maximum of 100.

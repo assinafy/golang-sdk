@@ -154,8 +154,13 @@ func TestSignerAccessCodeMethodsRejectEmptyCode(t *testing.T) {
 	png := []byte("\x89PNG\r\n\x1a\n")
 
 	calls := map[string]func(code string) error{
-		"Signers.GetSelf":                 func(c string) error { _, err := signers.GetSelf(ctx, c); return err },
-		"Signers.GetIdentityVerification": func(c string) error { _, err := signers.GetIdentityVerification(ctx, c); return err },
+		"Signers.GetTheme":                     func(c string) error { _, err := signers.GetTheme(ctx, c); return err },
+		"Signers.DownloadLogo":                 func(c string) error { _, err := signers.DownloadLogo(ctx, c); return err },
+		"SignerDocuments.RequestCertifiedCopy": func(c string) error { _, err := documents.RequestCertifiedCopy(ctx, c, nil); return err },
+		"SignerDocuments.GetCurrentWithParams": func(c string) error { _, err := documents.GetCurrentWithParams(ctx, "s", c, nil); return err },
+		"Assignments.GetSigningInfoWithParams": func(c string) error { _, err := assignments.GetSigningInfoWithParams(ctx, c, nil); return err },
+		"Signers.GetSelf":                      func(c string) error { _, err := signers.GetSelf(ctx, c); return err },
+		"Signers.GetIdentityVerification":      func(c string) error { _, err := signers.GetIdentityVerification(ctx, c); return err },
 		"Signers.StartIdentityVerification": func(c string) error {
 			_, err := signers.StartIdentityVerification(ctx, c, &models.StartIdentityVerificationRequest{Consent: true})
 			return err
@@ -178,15 +183,19 @@ func TestSignerAccessCodeMethodsRejectEmptyCode(t *testing.T) {
 		"SignerDocuments.List":                 func(c string) error { _, err := documents.List(ctx, "s", c, nil); return err },
 		"SignerDocuments.Search":               func(c string) error { _, err := documents.Search(ctx, "s", c, nil); return err },
 		"SignerDocuments.SearchAll":            func(c string) error { _, err := documents.SearchAll(ctx, "s", c, "x"); return err },
-		"SignerDocuments.SignMultiple":         func(c string) error { return documents.SignMultiple(ctx, c, []string{"d"}) },
-		"SignerDocuments.DeclineMultiple":      func(c string) error { return documents.DeclineMultiple(ctx, c, []string{"d"}, "no") },
-		"SignerDocuments.Download":             func(c string) error { _, err := documents.Download(ctx, "s", "d", "original", c); return err },
-		"Assignments.Sign":                     func(c string) error { return assignments.Sign(ctx, "d", "a", c, nil) },
-		"Assignments.Decline":                  func(c string) error { return assignments.Decline(ctx, "d", "a", c, "no") },
-		"Assignments.GetSigningInfo":           func(c string) error { _, err := assignments.GetSigningInfo(ctx, c); return err },
-		"Assignments.GetSigningInfoWithTerms":  func(c string) error { _, err := assignments.GetSigningInfoWithTerms(ctx, c, true); return err },
-		"Fields.Validate":                      func(c string) error { _, err := fields.Validate(ctx, "", "f", c, nil); return err },
-		"Fields.ValidateMultiple":              func(c string) error { _, err := fields.ValidateMultiple(ctx, "", c, nil); return err },
+		"SignerDocuments.SearchAllWithParams": func(c string) error {
+			_, err := documents.SearchAllWithParams(ctx, "s", c, &models.ListParams{EnvelopeID: "e"})
+			return err
+		},
+		"SignerDocuments.SignMultiple":        func(c string) error { return documents.SignMultiple(ctx, c, []string{"d"}) },
+		"SignerDocuments.DeclineMultiple":     func(c string) error { return documents.DeclineMultiple(ctx, c, []string{"d"}, "no") },
+		"SignerDocuments.Download":            func(c string) error { _, err := documents.Download(ctx, "s", "d", "original", c); return err },
+		"Assignments.Sign":                    func(c string) error { return assignments.Sign(ctx, "d", "a", c, nil) },
+		"Assignments.Decline":                 func(c string) error { return assignments.Decline(ctx, "d", "a", c, "no") },
+		"Assignments.GetSigningInfo":          func(c string) error { _, err := assignments.GetSigningInfo(ctx, c); return err },
+		"Assignments.GetSigningInfoWithTerms": func(c string) error { _, err := assignments.GetSigningInfoWithTerms(ctx, c, true); return err },
+		"Fields.Validate":                     func(c string) error { _, err := fields.Validate(ctx, "", "f", c, nil); return err },
+		"Fields.ValidateMultiple":             func(c string) error { _, err := fields.ValidateMultiple(ctx, "", c, nil); return err },
 	}
 	for name, call := range calls {
 		for _, code := range []string{"", " \t"} {

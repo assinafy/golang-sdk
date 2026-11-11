@@ -225,7 +225,42 @@ func (r *WebhookResource) GetEndpointSecret(ctx context.Context, accountID, endp
 // OAuth clients need webhooks:write.
 // POST /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret/rotate.
 func (r *WebhookResource) RotateEndpointSecret(ctx context.Context, accountID, endpointID string) (string, error) {
-	return r.secret(ctx, http.MethodPost, r.endpointPath(accountID, endpointID, "/secret/rotate"))
+	out, err := r.RotateEndpointSecretWithRequest(ctx, accountID, endpointID, nil)
+	if err != nil {
+		return "", err
+	}
+	return out.Secret, nil
+}
+
+// RotateEndpointSecretWithRequest returns a new signing secret and optional
+// previous-secret expiry using client authentication; OAuth needs webhooks:write.
+// KeepPrevious retains the replaced secret for 24 hours, signing each delivery
+// with both secrets. Only the immediately replaced secret is retained. Nil uses
+// immediate retirement. Signing must be enabled; an empty accountID uses the default.
+// POST /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/secret/rotate.
+func (r *WebhookResource) RotateEndpointSecretWithRequest(ctx context.Context, accountID, endpointID string, body *models.RotateWebhookSecretRequest) (*models.WebhookSecret, error) {
+	var out models.WebhookSecret
+	req := r.http.NewRequest(http.MethodPost, r.endpointPath(accountID, endpointID, "/secret/rotate"))
+	if body != nil {
+		req.WithBody(body)
+	}
+	if _, err := req.Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// TestEndpoint sends one webhook_test delivery and returns the manual dispatch.
+// It sends even when inactive or held, without changing the pause or its failure
+// count, and allows ten tests per user per ten minutes. It uses client
+// authentication; OAuth needs webhooks:write. An empty accountID uses the default.
+// POST /accounts/{account_id}/webhooks/endpoints/{endpoint_id}/test.
+func (r *WebhookResource) TestEndpoint(ctx context.Context, accountID, endpointID string) (*models.WebhookDispatch, error) {
+	var out models.WebhookDispatch
+	if _, err := r.http.NewRequest(http.MethodPost, r.endpointPath(accountID, endpointID, "/test")).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (r *WebhookResource) endpoint(ctx context.Context, method, path string, body any) (*models.WebhookEndpoint, error) {

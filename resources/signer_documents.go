@@ -30,10 +30,19 @@ func NewSignerDocumentResource(httpClient *internal.HTTPClient) *SignerDocumentR
 //
 // GET /signers/{signer_id}/document.
 func (r *SignerDocumentResource) GetCurrent(ctx context.Context, signerID, signerAccessCode string) (*models.Document, error) {
+	return r.GetCurrentWithParams(ctx, signerID, signerAccessCode, nil)
+}
+
+// GetCurrentWithParams returns the signer-facing document using only its access
+// code. Params.Expand accepts envelope; other params apply only to GET /sign.
+// GET /signers/{signer_id}/document.
+func (r *SignerDocumentResource) GetCurrentWithParams(ctx context.Context, signerID, signerAccessCode string, params *models.SigningDocumentParams) (*models.Document, error) {
 	var out models.Document
-	_, err := r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/document").
-		WithSignerAccessCode(signerAccessCode).
-		Execute(ctx, &out)
+	req := r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/document").WithSignerAccessCode(signerAccessCode)
+	if params != nil {
+		req.WithQuery("expand", params.Expand)
+	}
+	_, err := req.Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +51,8 @@ func (r *SignerDocumentResource) GetCurrent(ctx context.Context, signerID, signe
 
 // List authenticates with signerAccessCode and returns the Documents the signer
 // can access, with X-Pagination metadata. Page and per-page are documented;
-// populated search, sort, status and method fields are sent as well.
+// envelope_id filters the envelope; populated search, sort, status and method
+// fields are sent as well.
 //
 // GET /signers/{signer_id}/documents.
 func (r *SignerDocumentResource) List(ctx context.Context, signerID, signerAccessCode string, params *models.ListParams) (*models.PaginatedResult[models.Document], error) {
@@ -67,6 +77,7 @@ func (r *SignerDocumentResource) list(ctx context.Context, req *internal.Request
 	if params != nil {
 		req.WithQuery("status", params.Status)
 		req.WithQuery("method", params.Method)
+		req.WithQuery("envelope_id", params.EnvelopeID)
 	}
 	var out []models.Document
 	resp, err := req.Execute(ctx, &out)
@@ -87,6 +98,9 @@ func (r *SignerDocumentResource) Search(ctx context.Context, signerID, signerAcc
 	var out []models.Document
 	req := r.searchRequest(signerID).WithSignerAccessCode(signerAccessCode)
 	applyListParams(req, params)
+	if params != nil {
+		req.WithQuery("envelope_id", params.EnvelopeID)
+	}
 
 	resp, err := req.Execute(ctx, &out)
 	if err != nil {
@@ -100,7 +114,15 @@ func (r *SignerDocumentResource) Search(ctx context.Context, signerID, signerAcc
 //
 // GET /signers/{signer_id}/documents/search?search={search}.
 func (r *SignerDocumentResource) SearchAll(ctx context.Context, signerID, signerAccessCode, search string) ([]models.Document, error) {
-	return r.search(ctx, r.searchRequest(signerID).WithSignerAccessCode(signerAccessCode), search)
+	return r.SearchAllWithParams(ctx, signerID, signerAccessCode, &models.ListParams{Search: search})
+}
+
+// SearchAllWithParams returns matching documents using only signerAccessCode.
+// Params.Search selects the search text and EnvelopeID limits the envelope;
+// other ListParams fields are ignored because the response is not paginated.
+// GET /signers/{signer_id}/documents/search.
+func (r *SignerDocumentResource) SearchAllWithParams(ctx context.Context, signerID, signerAccessCode string, params *models.ListParams) ([]models.Document, error) {
+	return r.search(ctx, r.searchRequest(signerID).WithSignerAccessCode(signerAccessCode), params)
 }
 
 // SearchAsWorkspace returns every Document of one of the workspace's signers
@@ -108,16 +130,28 @@ func (r *SignerDocumentResource) SearchAll(ctx context.Context, signerID, signer
 //
 // GET /signers/{signer_id}/documents/search?search={search}.
 func (r *SignerDocumentResource) SearchAsWorkspace(ctx context.Context, signerID, search string) ([]models.Document, error) {
-	return r.search(ctx, r.searchRequest(signerID), search)
+	return r.SearchAsWorkspaceWithParams(ctx, signerID, &models.ListParams{Search: search})
+}
+
+// SearchAsWorkspaceWithParams returns matching documents with the client's API
+// key or bearer token. Params.Search selects the search text and EnvelopeID limits
+// the envelope; other ListParams fields are ignored. The signer must belong to
+// the authenticated workspace.
+// GET /signers/{signer_id}/documents/search.
+func (r *SignerDocumentResource) SearchAsWorkspaceWithParams(ctx context.Context, signerID string, params *models.ListParams) ([]models.Document, error) {
+	return r.search(ctx, r.searchRequest(signerID), params)
 }
 
 func (r *SignerDocumentResource) searchRequest(signerID string) *internal.Request {
 	return r.http.NewRequest(http.MethodGet, "/signers/"+url.PathEscape(signerID)+"/documents/search")
 }
 
-func (r *SignerDocumentResource) search(ctx context.Context, req *internal.Request, search string) ([]models.Document, error) {
+func (r *SignerDocumentResource) search(ctx context.Context, req *internal.Request, params *models.ListParams) ([]models.Document, error) {
 	var out []models.Document
-	if _, err := req.WithQuery("search", search).Execute(ctx, &out); err != nil {
+	if params != nil {
+		req.WithQuery("search", params.Search).WithQuery("envelope_id", params.EnvelopeID)
+	}
+	if _, err := req.Execute(ctx, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -179,4 +213,41 @@ func signerArtifactPath(signerID, documentID, artifact string) string {
 	return "/signers/" + url.PathEscape(signerID) +
 		"/documents/" + url.PathEscape(documentID) +
 		"/download/" + url.PathEscape(artifact)
+}
+
+// RequestCertifiedCopy sends a 30-minute download link to the original signing
+// contact using only the signer code, including a closed code. Email allows ten
+// resends per day spaced two minutes apart; WhatsApp allows one per request.
+// POST /sign/certified-copy.
+func (r *SignerDocumentResource) RequestCertifiedCopy(ctx context.Context, signerAccessCode string, body *models.CertifiedCopyRequest) (*models.CertifiedCopyResult, error) {
+	var out models.CertifiedCopyResult
+	_, err := r.http.NewRequest(http.MethodPost, "/sign/certified-copy").WithSignerAccessCode(signerAccessCode).WithBody(body).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DownloadByToken fetches the certified PDF using only its download token; pades
+// selects the PAdES artifact. Expired links return a 302 APIError without following
+// the redirect to the expired-link HTML page. Tokens must not be logged.
+// GET /signers/downloads/{token}.
+func (r *SignerDocumentResource) DownloadByToken(ctx context.Context, token string, pades bool) ([]byte, error) {
+	path := "/signers/downloads/" + url.PathEscape(token)
+	if pades {
+		path += "/pades"
+	}
+	return r.http.DownloadUnauthenticatedNoRedirect(ctx, path)
+}
+
+// ResendCertifiedCopy sends a new link using only the original download token,
+// even when expired. It shares RequestCertifiedCopy's channel and resend limits.
+// POST /signers/downloads/{token}/resend.
+func (r *SignerDocumentResource) ResendCertifiedCopy(ctx context.Context, token string) (*models.CertifiedCopyResult, error) {
+	var out models.CertifiedCopyResult
+	_, err := r.http.NewRequest(http.MethodPost, "/signers/downloads/"+url.PathEscape(token)+"/resend").WithoutAuth().Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

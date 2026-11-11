@@ -5,7 +5,7 @@
 [![CI](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk/v2.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 
-Zero-dependency Go client for all 118 published operations in the
+Zero-dependency Go client for all 147 published operations in the
 [Assinafy API v1](https://api.assinafy.com.br/v1/docs). It requires Go 1.26+ and
 TLS 1.2+ and uses only the standard library. See [docs/API.md](docs/API.md) for
 every method, request field, response, authentication mode, and declared error.
@@ -85,7 +85,7 @@ func main() {
 
 	assignment := must(client.Assignments.Create(ctx, document.ID,
 		&models.CreateAssignmentRequest{
-			Method: models.MethodVirtual,
+			Method: models.MethodVirtual, MaxTotalCredits: &estimate.TotalCredits,
 			Signers: []models.SignerReference{{
 				ID: signer.ID, VerificationMethod: models.VerificationMethodEmail,
 				NotificationMethods: []string{models.NotificationMethodEmail},
@@ -128,13 +128,24 @@ assignments require pages and fields using 150-DPI coordinates; `virtual` does n
 - `DigitalCertificate`: ICP-Brasil A1/A3 through Web PKI, matching CPF, a virtual
   assignment, and the signer alone in its step; costs 0.5 credit plus notification.
 
-Hosted sessions use `Assignment.SigningURLs`. A first-party signer experience uses
+`Assignment.SigningURLs` lets email signers request their invitation; WhatsApp-only
+and embedded signers may have null URLs (empty SDK strings). A signer experience uses
 `GetSigningInfo`, `GetSelf`, `VerifyOTP`, `ConfirmDataAndGet`, `AcceptTermsOnly`,
 `UploadSignatureWithReuse`, and `Assignments.Sign`, always with the
 `signer-access-code`. Biometrics use `GetIdentityVerification` and
 `StartIdentityVerification`. Certificates use `StartCertificateSignature` and
 `CompleteCertificateSignature`; their payloads are not in the published OpenAPI
 description. The SDK never mixes signer codes with workspace credentials.
+
+## Envelopes and embedded signing
+
+`client.Envelopes` groups up to 20 documents in one invitation, with cost estimates,
+`MaxTotalCredits`, and `IdempotencyKey`. Upload, wait for `metadata_ready`, estimate,
+create, and follow each document until `certificated`; download the envelope ZIP.
+`client.Embed` registers HTTPS origins and creates five-minute iframe sessions for
+signers with `Embedded: true` and Email or WhatsApp verification. OAuth cannot mint
+these sessions. Load the returned URL without logging it; each opening needs a new session.
+[Payloads and flows](docs/API.md#envelope-request-and-response-payloads).
 
 ## Marketplace OAuth
 
@@ -157,7 +168,8 @@ and `issuer` without redirects. External endpoints must use HTTPS.
 Create an endpoint with `SigningEnabled`, persist the one-time `whsec_` secret, and
 check the raw body with `NewWebhookVerifier(secret).VerifyRequest(headers, body)`.
 Deduplicate by `webhook-id`, return `2xx` quickly, and process asynchronously. Rotation
-invalidates the old secret. The API retries transient failures and retains seven days
+invalidates the old secret; `KeepPrevious: true` allows a 24-hour overlap.
+The API retries transient failures and retains seven days
 of delivery history; see states, attempts, and payloads in
 [docs/API.md#webhook-payloads](docs/API.md#webhook-payloads).
 
@@ -168,7 +180,7 @@ them with restrictive permissions.
 
 ## Reference and development
 
-- [docs/API.md](docs/API.md): 118 operations, full payloads, pagination, and binaries.
+- [docs/API.md](docs/API.md): 147 operations, full payloads, pagination, and binaries.
 - [Go Reference](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2): every exported symbol.
 - [SECURITY.md](SECURITY.md): private vulnerability reporting.
 - Models, contracts, fields, templates, activities, MFA, and preferences are in the

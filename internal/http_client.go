@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,11 +23,25 @@ import (
 
 const userAgent = "assinafy-go-sdk"
 
-// Transport returns a clone of http.DefaultTransport that refuses TLS versions
-// below 1.2, so the SDK's own clients never negotiate TLS 1.0 or 1.1.
+// Transport clones the standard transport, or uses standard defaults when the
+// application wraps it, and requires TLS 1.2 or newer.
 func Transport() *http.Transport {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if ok {
+		t = t.Clone()
+	} else {
+		t = &http.Transport{
+			Proxy:             http.ProxyFromEnvironment,
+			DialContext:       (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2: true, MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second, ExpectContinueTimeout: time.Second,
+		}
+	}
+	if t.TLSClientConfig == nil {
+		t.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else if t.TLSClientConfig.MinVersion < tls.VersionTLS12 {
+		t.TLSClientConfig.MinVersion = tls.VersionTLS12
+	}
 	return t
 }
 
@@ -130,15 +145,16 @@ func (c *HTTPClient) authorize(ctx context.Context, req *http.Request, noAuth bo
 
 // Request is a fluent builder for outgoing API requests.
 type Request struct {
-	client  *HTTPClient
-	method  string
-	path    string
-	query   url.Values
-	headers http.Header
-	noAuth  bool
-	body    any
-	rawBody []byte
-	err     error
+	client   *HTTPClient
+	method   string
+	path     string
+	query    url.Values
+	headers  http.Header
+	noAuth   bool
+	noReplay bool
+	body     any
+	rawBody  []byte
+	err      error
 }
 
 // NewRequest creates a Request bound to this client. Path must start with "/".
@@ -170,6 +186,12 @@ func (r *Request) WithHeader(key, value string) *Request {
 // for public and signer-access-code operations.
 func (r *Request) WithoutAuth() *Request {
 	r.noAuth = true
+	return r
+}
+
+// WithoutReplay prevents HTTP transport retries from replaying a single-use body.
+func (r *Request) WithoutReplay() *Request {
+	r.noReplay = true
 	return r
 }
 
@@ -252,7 +274,10 @@ func (c *HTTPClient) do(ctx context.Context, r *Request, result any) (*Response,
 
 	req, err := http.NewRequestWithContext(ctx, r.method, target, body)
 	if err != nil {
-		return nil, fmt.Errorf("assinafy: build request: %w", err)
+		return nil, fmt.Errorf("assinafy: build request: %w", RedactTransportError(err))
+	}
+	if r.noReplay {
+		req.GetBody = nil
 	}
 
 	for k, vs := range c.headers {
@@ -316,7 +341,7 @@ func (c *HTTPClient) UploadMultipart(ctx context.Context, path, fieldName, fileN
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &buf)
 	if err != nil {
-		return nil, fmt.Errorf("assinafy: build request: %w", err)
+		return nil, fmt.Errorf("assinafy: build request: %w", RedactTransportError(err))
 	}
 	for k, vs := range c.headers {
 		req.Header[k] = append(req.Header[k], vs...)
@@ -344,6 +369,22 @@ func (c *HTTPClient) Download(ctx context.Context, path string, query map[string
 // bearer-token header.
 func (c *HTTPClient) DownloadUnauthenticated(ctx context.Context, path string, query map[string]string) ([]byte, error) {
 	return c.download(ctx, path, query, true)
+}
+
+// DownloadUnauthenticatedNoRedirect retains redirect statuses for token downloads.
+func (c *HTTPClient) DownloadUnauthenticatedNoRedirect(ctx context.Context, path string) ([]byte, error) {
+	client := *c
+	httpClient := *c.httpc
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client.httpc = &httpClient
+	body, err := client.download(ctx, path, nil, true)
+	var apiErr *sdkerrors.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode >= 300 && apiErr.StatusCode < 400 {
+		// Expired-link redirects carry the bearer token in their HTML and Location.
+		apiErr.Message = http.StatusText(apiErr.StatusCode)
+		apiErr.Headers.Del("Location")
+	}
+	return body, err
 }
 
 // DownloadAsSigner downloads raw bytes authenticated only by a signer access
@@ -375,7 +416,7 @@ func (c *HTTPClient) download(ctx context.Context, path string, query map[string
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, fmt.Errorf("assinafy: build request: %w", err)
+		return nil, fmt.Errorf("assinafy: build request: %w", RedactTransportError(err))
 	}
 	for k, vs := range c.headers {
 		if noAuth && (k == "Authorization" || k == "X-Api-Key") {
@@ -411,14 +452,22 @@ func newNetworkError(err error) *sdkerrors.NetworkError {
 	return &sdkerrors.NetworkError{Err: RedactTransportError(err)}
 }
 
-// RedactTransportError removes query credentials from transport error messages
+var tokenPathPattern = regexp.MustCompile(`(/(?:embed/sessions|signers/downloads)/)[^\s"'<>?#]+`)
+
+// RedactTransportError removes query and path credentials from transport errors
 // while preserving the underlying cause for errors.Is and errors.As.
 func RedactTransportError(err error) error {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) {
+		if err != nil {
+			if message := tokenPathPattern.ReplaceAllString(err.Error(), "${1}[REDACTED]"); message != err.Error() {
+				return &redactedError{cause: err, message: message}
+			}
+		}
 		return err
 	}
 	clean := *urlErr
+	clean.URL = tokenPathPattern.ReplaceAllString(clean.URL, "${1}[REDACTED]")
 	if parsed, err := url.Parse(clean.URL); err == nil {
 		parsed.RawQuery = ""
 		parsed.User = nil
@@ -427,9 +476,13 @@ func RedactTransportError(err error) error {
 		clean.URL = before
 	}
 	if clean.Err != nil {
+		message := tokenPathPattern.ReplaceAllString(clean.Err.Error(), "${1}[REDACTED]")
 		// net/http includes the raw Location in errors raised before CheckRedirect.
-		if before, _, found := strings.Cut(clean.Err.Error(), "?"); found {
-			clean.Err = &redactedError{cause: clean.Err, message: before + "?[REDACTED]"}
+		if before, _, found := strings.Cut(message, "?"); found {
+			message = before + "?[REDACTED]"
+		}
+		if message != clean.Err.Error() {
+			clean.Err = &redactedError{cause: clean.Err, message: message}
 		}
 	}
 	return &clean
@@ -467,12 +520,14 @@ func validatePath(path string) error {
 // envelope mirrors the shared response wrapper documented at
 // https://api.assinafy.com.br/v1/docs.
 type envelope struct {
-	Status       json.RawMessage                 `json:"status"`
-	Message      string                          `json:"message"`
-	Code         string                          `json:"code"`
-	Errors       []sdkerrors.FieldError          `json:"errors"`
-	Data         json.RawMessage                 `json:"data"`
-	Restrictions []sdkerrors.DeletionRestriction `json:"restrictions"`
+	Status          json.RawMessage                 `json:"status"`
+	Message         string                          `json:"message"`
+	Code            string                          `json:"code"`
+	TotalCredits    *float64                        `json:"total_credits"`
+	MaxTotalCredits *float64                        `json:"max_total_credits"`
+	Errors          []sdkerrors.FieldError          `json:"errors"`
+	Data            json.RawMessage                 `json:"data"`
+	Restrictions    []sdkerrors.DeletionRestriction `json:"restrictions"`
 }
 
 func parseResponse(resp *http.Response, result any) (*Response, error) {
@@ -524,12 +579,14 @@ func parseResponse(resp *http.Response, result any) (*Response, error) {
 			statusCode = envStatus
 		}
 		apiErr := &sdkerrors.APIError{
-			StatusCode:   statusCode,
-			Message:      env.Message,
-			Code:         env.Code,
-			Errors:       env.Errors,
-			Restrictions: env.Restrictions,
-			Headers:      resp.Header.Clone(),
+			StatusCode:      statusCode,
+			Message:         env.Message,
+			Code:            env.Code,
+			TotalCredits:    env.TotalCredits,
+			MaxTotalCredits: env.MaxTotalCredits,
+			Errors:          env.Errors,
+			Restrictions:    env.Restrictions,
+			Headers:         resp.Header.Clone(),
 		}
 		if apiErr.Message == "" {
 			apiErr.Message = http.StatusText(statusCode)

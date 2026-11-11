@@ -84,6 +84,10 @@ type Client struct {
 	Documents *resources.DocumentResource
 	// Contracts provides authenticated contract terms, amendments, renewals and termination.
 	Contracts *resources.ContractResource
+	// Envelopes provides authenticated multi-document signing and lifecycle operations.
+	Envelopes *resources.EnvelopeResource
+	// Embed manages permitted origins and single-use embedded signing sessions.
+	Embed *resources.EmbedResource
 	// Signers provides account-scoped and signer-access-code signer operations.
 	Signers *resources.SignerResource
 	// SignerDocuments provides signer-access-code document and batch-signing operations.
@@ -173,6 +177,8 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Accounts:        resources.NewAccountResource(httpClient, opts.AccountID),
 		Documents:       resources.NewDocumentResource(httpClient, opts.AccountID),
 		Contracts:       resources.NewContractResource(httpClient, opts.AccountID),
+		Envelopes:       resources.NewEnvelopeResource(httpClient, opts.AccountID),
+		Embed:           resources.NewEmbedResource(httpClient, opts.AccountID),
 		Signers:         resources.NewSignerResource(httpClient, opts.AccountID),
 		SignerDocuments: resources.NewSignerDocumentResource(httpClient),
 		Assignments:     resources.NewAssignmentResource(httpClient, opts.AccountID),

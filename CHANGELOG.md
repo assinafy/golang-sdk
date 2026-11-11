@@ -5,6 +5,35 @@ All notable changes to the Assinafy Go SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-11-11
+
+### Added
+
+- `Client.Envelopes` for multi-document invitations, estimates, idempotent creation,
+  lifecycle management, activity history and ZIP downloads.
+- `Client.Embed` for allowed origins and single-use embedded signing sessions.
+- Workspace usage, signing-feature expansion, notification policies, push
+  preferences, webhook test deliveries and secret rotation with a grace period.
+- Signer branding, certified-copy requests, token downloads and resend operations.
+- Credit spending ceilings, template idempotency keys, embedded signer settings,
+  envelope filters and expansions, signed page renders and certification timestamps.
+- Typed credit-ceiling error amounts, closed signer-session details and unlimited
+  document balances. The API reference describes all 147 published operations.
+
+### Fixed
+
+- Client construction supports applications that wrap the default HTTP transport.
+- Unlimited document balances retain JSON null and distinguish it from zero.
+
+### Security
+
+- Single-use embed exchanges disable HTTP body replay, including after a stream reset.
+- Transport errors redact embed and download tokens carried in URL paths.
+- Token downloads retain redirect status without following expired-link pages or
+  exposing their bearer tokens in error messages or Location headers.
+- Signer branding and certified-copy methods send only the signer access code;
+  token-based operations omit workspace credentials.
+
 ## [2.2.0] - 2026-11-02
 
 ### Added

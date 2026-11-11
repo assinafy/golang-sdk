@@ -2,12 +2,40 @@ package errors
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAPIErrorCreditCeilingFields(t *testing.T) {
+	for _, body := range []string{
+		`{"status":409,"code":"CreditCeilingExceeded","total_credits":2,"max_total_credits":0}`,
+		`{"status":400,"message":"Invalid input"}`,
+	} {
+		var apiErr APIError
+		if err := json.Unmarshal([]byte(body), &apiErr); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(apiErr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if apiErr.Code == "CreditCeilingExceeded" {
+			if apiErr.TotalCredits == nil || *apiErr.TotalCredits != 2 || apiErr.MaxTotalCredits == nil || *apiErr.MaxTotalCredits != 0 || string(fields["max_total_credits"]) != "0" {
+				t.Fatalf("credit ceiling fields = %s", encoded)
+			}
+		} else if apiErr.TotalCredits != nil || apiErr.MaxTotalCredits != nil || fields["total_credits"] != nil || fields["max_total_credits"] != nil {
+			t.Fatalf("unexpected credit ceiling fields = %s", encoded)
+		}
+	}
+}
 
 func TestAPIError(t *testing.T) {
 	err := &APIError{StatusCode: 400, Message: "bad request"}

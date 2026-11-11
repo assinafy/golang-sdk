@@ -16,7 +16,11 @@ func TestIntegrationOAuthDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverAuthorizationServer: %v", err)
 	}
-	if server.Issuer != oauth.DefaultIssuer || server.Endpoint() != oauth.ProductionEndpoint() || server.JWKSURI == "" {
+	endpoint, expected := server.Endpoint(), oauth.ProductionEndpoint()
+	if server.Issuer != oauth.DefaultIssuer || server.JWKSURI == "" ||
+		endpoint.Issuer != expected.Issuer || endpoint.AuthorizationURL != expected.AuthorizationURL ||
+		endpoint.TokenURL != expected.TokenURL || endpoint.RevocationURL != expected.RevocationURL ||
+		endpoint.UserInfoURL != expected.UserInfoURL {
 		t.Errorf("unexpected public authorization-server metadata: %+v", server)
 	}
 	resource, err := oauth.DiscoverProtectedResource(ctx, oauth.DefaultResource, nil)

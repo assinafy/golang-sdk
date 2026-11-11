@@ -117,6 +117,25 @@ func (r *SignerResource) GetSelf(ctx context.Context, signerAccessCode string) (
 	return &out, nil
 }
 
+// GetTheme returns the sending workspace's branding using only the signer code.
+// Available before verification and after the document is deleted.
+// GET /sign/theme.
+func (r *SignerResource) GetTheme(ctx context.Context, signerAccessCode string) (*models.AccountTheme, error) {
+	var out models.AccountTheme
+	_, err := r.http.NewRequest(http.MethodGet, "/sign/theme").WithSignerAccessCode(signerAccessCode).Execute(ctx, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DownloadLogo returns the workspace logo using only the signer code. An absent
+// logo returns a 404 APIError; no workspace credential is sent.
+// GET /sign/logo.
+func (r *SignerResource) DownloadLogo(ctx context.Context, signerAccessCode string) ([]byte, error) {
+	return r.http.DownloadAsSigner(ctx, "/sign/logo", signerAccessCode)
+}
+
 // GetIdentityVerification authenticates only with signerAccessCode and returns
 // the identity-document state. CanStart permits a first session or replacing an
 // Expired one. InReview permits signing but holds certification for account

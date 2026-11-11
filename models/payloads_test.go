@@ -49,7 +49,7 @@ func TestFullResponsePayloadRoundTrips(t *testing.T) {
 			"copy_receivers":[{"id":"copy_1","full_name":"Copy Receiver","email":"copy@example.test","has_accepted_terms":false}],
 			"items":[{"id":"item_1","page":{"id":"page_1","number":1,"height":1754,"width":1240,"download_url":"https://example.test/pages/page_1"},"signer":{"id":"signer_1","full_name":"Example Signer","has_accepted_terms":true},"field":{"resource":"field","id":"field_1","name":"Signature","type":"signature","is_pre_defined":true,"is_active":true,"is_required":true,"is_standard":true,"is_read_only":false,"is_visible":true},"display_settings":{"left":10,"top":20,"width":200,"height":50,"fontSize":12},"value":"signed","completed":true}],
 			"summary":{"signer_count":1,"completed_count":1,"signers":[{"id":"signer_1","full_name":"Example Signer","has_accepted_terms":true,"completed":true}]},
-			"signing_urls":[{"signer_id":"signer_1","url":"https://example.test/sign/signer_1"}],"completed_at":"2026-01-01T11:00:00Z","created_at":"2026-01-01T10:00:00Z","updated_at":"2026-01-01T11:00:00Z"
+			"signing_urls":[{"embedded":false,"signer_id":"signer_1","url":"https://example.test/sign/signer_1"}],"completed_at":"2026-01-01T11:00:00Z","created_at":"2026-01-01T10:00:00Z","updated_at":"2026-01-01T11:00:00Z"
 		}`
 		assignment := assertPayloadRoundTrip[Assignment](t, fixture)
 		if assignment.Method != MethodCollect || len(assignment.Signers) != 1 || len(assignment.CopyReceivers) != 1 ||
@@ -77,7 +77,7 @@ func TestFullResponsePayloadRoundTrips(t *testing.T) {
 
 	t.Run("webhook dispatch", func(t *testing.T) {
 		const fixture = `{
-			"resource":"activity_dispatching_history","id":"dispatch_1","event":"document_ready","activity_id":42,"endpoint":"https://hooks.example.test/assinafy",
+			"resource":"activity_dispatching_history","duration_ms":null,"id":"dispatch_1","event":"document_ready","activity_id":42,"endpoint":"https://hooks.example.test/assinafy",
 			"payload":{"document_id":"doc_1","attempt":2},"delivered":false,"webhook_id":"delivery-id","attempt":2,"kind":"scheduled","will_retry":false,"http_status":500,"response_body":"temporary failure","error":"subscriber returned an error",
 			"created_at":"2026-01-01T10:00:00Z","updated_at":"2026-01-01T10:01:00Z"
 		}`

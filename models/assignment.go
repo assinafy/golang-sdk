@@ -90,12 +90,18 @@ type AssignmentSummary struct {
 type SigningURL struct {
 	// SignerID identifies the signer for whom URL was issued.
 	SignerID string `json:"signer_id"`
-	// URL is the signer-specific absolute signing URI.
+	// URL is the invitation page; empty when the API sends null for WhatsApp-only
+	// or embedded signers. It does not itself grant access to the document.
 	URL string `json:"url"`
+	// Embedded reports whether the signer requires an embed session.
+	Embedded bool `json:"embedded"`
 }
 
 // CreateAssignmentRequest is the body for POST /documents/{id}/assignments.
 type CreateAssignmentRequest struct {
+	// MaxTotalCredits rejects a cost above this ceiling before charging. A
+	// pointer to zero permits only zero-credit creation; nil omits the ceiling.
+	MaxTotalCredits *float64 `json:"max_total_credits,omitempty"`
 	// Method is required and must be MethodVirtual or MethodCollect.
 	Method AssignmentMethod `json:"method,omitempty"`
 	// Signers identifies required participants and their delivery settings.
@@ -133,8 +139,9 @@ type EstimateAssignmentCostSigner struct {
 	// VerificationMethod is optionally "Email", "Whatsapp", or
 	// "DigitalCertificate", or "IdDocumentFaceMatchBasic"; empty selects Email.
 	VerificationMethod string `json:"verification_method,omitempty"`
-	// NotificationMethods optionally contains "Email" or "Whatsapp"; an empty
-	// slice selects the Email default.
+	// NotificationMethods optionally contains one of "Email" or "Whatsapp".
+	// An omitted value is inferred from VerificationMethod, defaulting to Email
+	// when neither is supplied.
 	NotificationMethods []string `json:"notification_methods,omitempty"`
 }
 
@@ -181,19 +188,22 @@ type CostEstimate struct {
 	NeedsExtraDocument bool `json:"needs_extra_document"`
 	// ExtraDocumentCost is the additional cost for the required document unit.
 	ExtraDocumentCost float64 `json:"extra_document_cost"`
-	// TotalCredits is the total credit cost across the estimate breakdown.
+	// TotalCredits is Credits plus ExtraDocumentCost when NeedsExtraDocument is true.
 	TotalCredits float64 `json:"total_credits"`
 	// Breakdown itemizes the operation's priced components.
 	Breakdown []CostBreakdownItem `json:"breakdown"`
 	// DocumentBalance is the account's available document-unit balance.
 	DocumentBalance float64 `json:"document_balance"`
+	// DocumentBalanceUnlimited distinguishes a null document balance from zero.
+	DocumentBalanceUnlimited bool `json:"-"`
 	// CreditBalance is the account's available credit balance. A null balance
 	// decodes to zero; check CreditBalanceUnlimited to distinguish unlimited credits.
 	CreditBalance float64 `json:"credit_balance"`
 	// CreditBalanceUnlimited is true when the API explicitly sends a null
-	// credit_balance, indicating unlimited credits on a resend estimate.
+	// credit_balance, indicating unlimited credits.
 	CreditBalanceUnlimited bool `json:"-"`
-	// HasSufficientResources reports whether both balances cover the operation.
+	// HasSufficientResources reports whether creation passes its balance checks;
+	// a contract permitting overage can pass even with low balances.
 	HasSufficientResources bool `json:"has_sufficient_resources"`
 	// BlockingReason is set when the operation cannot proceed (e.g. PendingPayment,
 	// InsufficientDocuments, InsufficientCredits) and is null otherwise.
@@ -212,7 +222,8 @@ func (e *CostEstimate) UnmarshalJSON(data []byte) error {
 	type plain CostEstimate
 	var decoded struct {
 		plain
-		CreditBalance json.RawMessage `json:"credit_balance"`
+		CreditBalance   json.RawMessage `json:"credit_balance"`
+		DocumentBalance json.RawMessage `json:"document_balance"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
@@ -221,6 +232,13 @@ func (e *CostEstimate) UnmarshalJSON(data []byte) error {
 		if bytes.Equal(bytes.TrimSpace(decoded.CreditBalance), []byte("null")) {
 			decoded.CreditBalanceUnlimited = true
 		} else if err := json.Unmarshal(decoded.CreditBalance, &decoded.plain.CreditBalance); err != nil {
+			return err
+		}
+	}
+	if len(decoded.DocumentBalance) > 0 {
+		if bytes.Equal(bytes.TrimSpace(decoded.DocumentBalance), []byte("null")) {
+			decoded.DocumentBalanceUnlimited = true
+		} else if err := json.Unmarshal(decoded.DocumentBalance, &decoded.plain.DocumentBalance); err != nil {
 			return err
 		}
 	}
@@ -233,13 +251,18 @@ func (e *CostEstimate) UnmarshalJSON(data []byte) error {
 func (e CostEstimate) MarshalJSON() ([]byte, error) {
 	type plain CostEstimate
 	var balance *float64
+	var documents *float64
 	if !e.CreditBalanceUnlimited {
 		balance = &e.CreditBalance
 	}
+	if !e.DocumentBalanceUnlimited {
+		documents = &e.DocumentBalance
+	}
 	return json.Marshal(struct {
 		plain
-		CreditBalance *float64 `json:"credit_balance"`
-	}{plain: plain(e), CreditBalance: balance})
+		CreditBalance   *float64 `json:"credit_balance"`
+		DocumentBalance *float64 `json:"document_balance"`
+	}{plain: plain(e), CreditBalance: balance, DocumentBalance: documents})
 }
 
 // CostBreakdownItem is a single line in CostEstimate.Breakdown.

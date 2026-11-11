@@ -72,6 +72,14 @@ type Document struct {
 	// HasContract is returned by workspace document detail when contract tracking
 	// is available. Nil means unknown; true includes inherited contract terms.
 	HasContract *bool `json:"has_contract,omitempty"`
+	// EnvelopeID is included by workspace detail with expand=envelope_id.
+	EnvelopeID *string `json:"envelope_id,omitempty"`
+	// Envelope identifies the envelope when requested with expand=envelope.
+	Envelope *EnvelopeReference `json:"envelope,omitempty"`
+	// IsSignerAccessClosed reports closure of the signer-access-code session.
+	IsSignerAccessClosed *bool `json:"is_signer_access_closed,omitempty"`
+	// CertifiedCopy describes whether the signer can request a certified copy.
+	CertifiedCopy *CertifiedCopyStatus `json:"certified_copy,omitempty"`
 	// DeclineReason is the nullable reason supplied when a signer declined.
 	DeclineReason *string `json:"decline_reason,omitempty"`
 	// DeclinedBy is the nullable signer that declined the document.
@@ -159,6 +167,12 @@ type RenameDocumentRequest struct {
 // CreateDocumentFromTemplateOptions is the body for
 // POST /accounts/{id}/templates/{tid}/documents.
 type CreateDocumentFromTemplateOptions struct {
+	// IdempotencyKey is sent as a header. Reuse it after an uncertain outcome to
+	// retrieve the same document; keys are scoped to the template and do not expire.
+	IdempotencyKey string `json:"-"`
+	// MaxTotalCredits refuses creation above this ceiling; a pointer to zero
+	// permits only zero-credit creation, including its asynchronous assignment.
+	MaxTotalCredits *float64 `json:"max_total_credits,omitempty"`
 	// Name optionally overrides the template's document name.
 	Name string `json:"name,omitempty"`
 	// Message is an optional signing-invitation message.
@@ -187,6 +201,8 @@ type TemplateEditorField struct {
 
 // TemplateSigner pairs a real signer with a template role.
 type TemplateSigner struct {
+	// Embedded enables iframe signing for this role; requires the Embed feature.
+	Embedded bool `json:"embedded,omitempty"`
 	// RoleID is the required template role identifier.
 	RoleID string `json:"role_id"`
 	// ID is an existing signer identifier. Creation requires ID or Email; ID takes
@@ -249,6 +265,9 @@ type VerifyDocumentResult struct {
 	CompletedCount *int `json:"completed_count,omitempty"`
 	// CompletedAt is the nullable signing-completion date-time.
 	CompletedAt *Timestamp `json:"completed_at,omitempty"`
+	// CertificatedAt is the first document_ready event's date-time; nil when
+	// no certification event is available, including some historical documents.
+	CertificatedAt *Timestamp `json:"certificated_at"`
 	// VerifiedAt is the date-time at which verification ran.
 	VerifiedAt Timestamp `json:"verified_at"`
 	// IsValid reports whether the supplied hash identifies a valid document.

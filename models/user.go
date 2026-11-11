@@ -28,3 +28,18 @@ type User struct {
 	// ToBeDeletedAt is the nullable scheduled account-deletion date-time.
 	ToBeDeletedAt *Timestamp `json:"to_be_deleted_at,omitempty"`
 }
+
+// PushPreferences maps notification codes to phone push delivery settings.
+// Responses include every code; updates merge only supplied keys and do not
+// change email preferences. Unknown response codes are retained.
+type PushPreferences map[NotificationPreference]bool
+
+const (
+	// NotificationPreferenceSignerViewed controls first-view push alerts.
+	NotificationPreferenceSignerViewed NotificationPreference = "SignerViewed"
+	// NotificationPreferenceSignerSigned controls signer-completion push alerts.
+	NotificationPreferenceSignerSigned NotificationPreference = "SignerSigned"
+	// NotificationPreferenceSignerIdentityReviewRequired controls identity-review
+	// push alerts. Identity-review email remains enabled independently.
+	NotificationPreferenceSignerIdentityReviewRequired NotificationPreference = "SignerIdentityReviewRequired"
+)

@@ -84,8 +84,20 @@ func (r *ContractResource) Set(ctx context.Context, accountID, documentID string
 // authentication, starting from either the root document or an instrument.
 // GET /accounts/{account_id}/documents/{document_id}/contract/related.
 func (r *ContractResource) Related(ctx context.Context, accountID, documentID string) (*models.DocumentContract, error) {
+	return r.RelatedWithParams(ctx, accountID, documentID, nil)
+}
+
+// RelatedWithParams returns the root contract and its amendment family using
+// client authentication. Params.Expand accepts document to include the root
+// document and its name; other ContractListParams fields are ignored.
+// GET /accounts/{account_id}/documents/{document_id}/contract/related.
+func (r *ContractResource) RelatedWithParams(ctx context.Context, accountID, documentID string, params *models.ContractListParams) (*models.DocumentContract, error) {
 	var out models.DocumentContract
-	_, err := r.http.NewRequest(http.MethodGet, r.contractPath(accountID, documentID)+"/related").Execute(ctx, &out)
+	req := r.http.NewRequest(http.MethodGet, r.contractPath(accountID, documentID)+"/related")
+	if params != nil {
+		req.WithQuery("expand", params.Expand)
+	}
+	_, err := req.Execute(ctx, &out)
 	if err != nil {
 		return nil, err
 	}

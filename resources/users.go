@@ -84,6 +84,31 @@ func (r *UserResource) UpdateNotificationPreferences(ctx context.Context, change
 	return out, nil
 }
 
+// GetPushPreferences returns the authenticated user's phone push preferences,
+// independently of email preferences. It uses API-key or user-token
+// authentication; third-party OAuth applications receive 403.
+// GET /users/self/push-preferences.
+func (r *UserResource) GetPushPreferences(ctx context.Context) (models.PushPreferences, error) {
+	var out models.PushPreferences
+	if _, err := r.http.NewRequest(http.MethodGet, "/users/self/push-preferences").Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdatePushPreferences merges supplied phone push preferences and returns the
+// complete map. False stops that alert across all of the user's workspaces;
+// email settings stay unchanged. It uses API-key or user-token authentication;
+// third-party OAuth applications receive 403. Empty maps or unknown codes are 400.
+// PUT /users/self/push-preferences.
+func (r *UserResource) UpdatePushPreferences(ctx context.Context, changes models.PushPreferences) (models.PushPreferences, error) {
+	var out models.PushPreferences
+	if _, err := r.http.NewRequest(http.MethodPut, "/users/self/push-preferences").WithBody(changes).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ListMFAMethods returns the authenticated user's enrolled two-factor methods
 // and the number of unused recovery codes.
 // GET /users/self/mfa.

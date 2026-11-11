@@ -318,7 +318,7 @@ func identityReviewPath(documentID, assignmentID, signerID string) string {
 // Document payload without requiring a client credential.
 // GET /sign.
 func (r *AssignmentResource) GetSigningInfo(ctx context.Context, signerAccessCode string) (*models.Document, error) {
-	return r.getSigningInfo(ctx, signerAccessCode, nil)
+	return r.GetSigningInfoWithParams(ctx, signerAccessCode, nil)
 }
 
 // GetSigningInfoWithTerms authenticates with signerAccessCode, sends the
@@ -326,14 +326,20 @@ func (r *AssignmentResource) GetSigningInfo(ctx context.Context, signerAccessCod
 // terms flag can update signer state; no client credential is required.
 // GET /sign?has_accepted_terms={value}.
 func (r *AssignmentResource) GetSigningInfoWithTerms(ctx context.Context, signerAccessCode string, hasAcceptedTerms bool) (*models.Document, error) {
-	return r.getSigningInfo(ctx, signerAccessCode, &hasAcceptedTerms)
+	return r.GetSigningInfoWithParams(ctx, signerAccessCode, &models.SigningDocumentParams{HasAcceptedTerms: &hasAcceptedTerms})
 }
 
-func (r *AssignmentResource) getSigningInfo(ctx context.Context, signerAccessCode string, hasAcceptedTerms *bool) (*models.Document, error) {
+// GetSigningInfoWithParams uses only the signer access code to open a document,
+// optionally selecting another document in its envelope and including its envelope.
+// GET /sign.
+func (r *AssignmentResource) GetSigningInfoWithParams(ctx context.Context, signerAccessCode string, params *models.SigningDocumentParams) (*models.Document, error) {
 	var out models.Document
 	req := r.http.NewRequest(http.MethodGet, "/sign").WithSignerAccessCode(signerAccessCode)
-	if hasAcceptedTerms != nil {
-		req.WithQuery("has_accepted_terms", strconv.FormatBool(*hasAcceptedTerms))
+	if params != nil {
+		req.WithQuery("expand", params.Expand).WithQuery("document_id", params.DocumentID)
+		if params.HasAcceptedTerms != nil {
+			req.WithQuery("has_accepted_terms", strconv.FormatBool(*params.HasAcceptedTerms))
+		}
 	}
 	_, err := req.Execute(ctx, &out)
 	if err != nil {
