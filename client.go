@@ -86,6 +86,8 @@ type Client struct {
 	Contracts *resources.ContractResource
 	// Envelopes provides authenticated multi-document signing and lifecycle operations.
 	Envelopes *resources.EnvelopeResource
+	// ScheduledSends manages deferred assignment and envelope invitations.
+	ScheduledSends *resources.ScheduledSendResource
 	// Embed manages permitted origins and single-use embedded signing sessions.
 	Embed *resources.EmbedResource
 	// Signers provides account-scoped and signer-access-code signer operations.
@@ -178,6 +180,7 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Documents:       resources.NewDocumentResource(httpClient, opts.AccountID),
 		Contracts:       resources.NewContractResource(httpClient, opts.AccountID),
 		Envelopes:       resources.NewEnvelopeResource(httpClient, opts.AccountID),
+		ScheduledSends:  resources.NewScheduledSendResource(httpClient, opts.AccountID),
 		Embed:           resources.NewEmbedResource(httpClient, opts.AccountID),
 		Signers:         resources.NewSignerResource(httpClient, opts.AccountID),
 		SignerDocuments: resources.NewSignerDocumentResource(httpClient),

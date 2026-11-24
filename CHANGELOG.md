@@ -5,6 +5,28 @@ All notable changes to the Assinafy Go SDK are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-11-24
+
+### Added
+
+- Scheduled assignment and envelope delivery, listing, immediate execution and
+  cancellation through `Client.ScheduledSends`.
+- Document watchers, signing capacities, notification delivery history and
+  envelope reminder cost estimates for the staging API.
+- `Assignments.SignAndGet` for the signer-facing assignment response.
+- Request and response documentation for all 147 production and 157 staging
+  operations, including scheduling, delivery limits and signing capacities.
+
+### Fixed
+
+- Data confirmation accepts the API's empty-list success while preserving legacy signer payloads.
+- Signature and initial uploads accept PNG and JPEG and send the detected media type.
+- Certificate pricing guidance uses the workspace's cost estimate.
+
+### Security
+
+- Signing-result requests use only the signer access code and reject blank codes.
+
 ## [2.3.1] - 2026-11-11
 
 ### Fixed

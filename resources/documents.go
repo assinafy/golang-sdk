@@ -444,3 +444,30 @@ func (r *DocumentResource) ListStatuses(ctx context.Context) ([]models.DocumentS
 	}
 	return out, nil
 }
+
+// ListWatchers returns the document's watcher contacts in their configured order,
+// omitting deleted contacts. Requires API-key or user-token authentication;
+// third-party OAuth applications cannot read watchers.
+// GET /documents/{document_id}/watchers.
+func (r *DocumentResource) ListWatchers(ctx context.Context, documentID string) ([]models.Signer, error) {
+	var out []models.Signer
+	path := "/documents/" + url.PathEscape(documentID) + "/watchers"
+	if _, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SetWatchers replaces up to ten watcher contacts and returns their Signer records.
+// Requires API-key or user-token authentication, not third-party OAuth. Contacts
+// must have email addresses. An empty non-nil WatcherIDs slice clears the list. Watchers
+// receive a terminal-state email without links or files; ended documents reject changes.
+// PUT /documents/{document_id}/watchers.
+func (r *DocumentResource) SetWatchers(ctx context.Context, documentID string, body *models.SetDocumentWatchersRequest) ([]models.Signer, error) {
+	var out []models.Signer
+	path := "/documents/" + url.PathEscape(documentID) + "/watchers"
+	if _, err := r.http.NewRequest(http.MethodPut, path).WithBody(body).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

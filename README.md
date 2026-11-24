@@ -5,7 +5,7 @@
 [![CI](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/assinafy/golang-sdk/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/assinafy/golang-sdk/v2.svg)](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2)
 
-Cliente Go sem dependências de terceiros para as 147 operações publicadas da
+Cliente Go sem dependências de terceiros para as 147 operações de produção e 157 de staging da
 [API Assinafy v1](https://api.assinafy.com.br/v1/docs). Requer Go 1.26+, TLS 1.2+
 e usa a biblioteca padrão. A referência completa de métodos, campos de requisição,
 respostas, autenticação e erros está em [docs/API.md](docs/API.md).
@@ -69,11 +69,13 @@ func main() {
 	}))
 	pdf := must(os.ReadFile(os.Getenv("ASSINAFY_PDF_PATH")))
 	document := must(client.Documents.Upload(ctx, "", pdf, "document.pdf", nil))
+	fmt.Printf("document=%s\n", document.ID)
 
 	email := os.Getenv("ASSINAFY_SIGNER_EMAIL")
 	signer := must(client.Signers.Create(ctx, "", &models.CreateSignerRequest{
 		FullName: os.Getenv("ASSINAFY_SIGNER_NAME"), Email: &email,
 	}))
+	fmt.Printf("signer=%s\n", signer.ID)
 	estimate := must(client.Assignments.EstimateCostWithRequest(ctx, document.ID,
 		&models.EstimateAssignmentCostRequest{
 			Method: models.MethodVirtual,
@@ -91,7 +93,7 @@ func main() {
 				NotificationMethods: []string{models.NotificationMethodEmail},
 			}},
 		}))
-	fmt.Printf("document=%s signer=%s assignment=%s\n", document.ID, signer.ID, assignment.ID)
+	fmt.Printf("assignment=%s\n", assignment.ID)
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -126,11 +128,11 @@ exigem páginas e campos com coordenadas de 150 DPI; o fluxo `virtual` não exig
 - `IdDocumentFaceMatchBasic`: captura biométrica hospedada, CPF válido, consentimento
   explícito e revisão pela conta quando o resultado fica `InReview`.
 - `DigitalCertificate`: ICP-Brasil A1/A3 via Web PKI, CPF correspondente, assignment
-  virtual e signatário sozinho no passo; custa 0,5 crédito mais a notificação.
+  virtual e signatário sozinho no passo; estime o preço do plano antes de criar.
 
 Links de `Assignment.SigningURLs` permitem pedir o convite por e-mail; WhatsApp e
 signatários embedded podem retornar URL nula (string vazia no SDK). Uma experiência própria
-usa `GetSigningInfo`, `GetSelf`, `VerifyOTP`, `ConfirmDataAndGet`,
+usa `GetSigningInfo`, `GetSelf`, `VerifyOTP`, `ConfirmData`,
 `AcceptTermsOnly`, `UploadSignatureWithReuse` e `Assignments.Sign`, sempre com o
 `signer-access-code`. Biometria usa `GetIdentityVerification` e
 `StartIdentityVerification`. Certificados usam `StartCertificateSignature` e
@@ -148,6 +150,8 @@ sessões. Carregue a URL devolvida sem registrá-la; cada abertura exige nova se
 [Payloads e fluxos](docs/API.md#envelope-request-and-response-payloads).
 
 Criação por template com `IdempotencyKey` delega validação e recuperação de tentativas à API.
+Em staging, `ScheduledSends` agenda envios; `Documents.SetWatchers` define observadores.
+Capacidades, histórico de entrega e custo de lembrete do envelope estão na [referência](docs/API.md#scheduled-sends-and-document-participants).
 
 ## OAuth de marketplace
 
@@ -182,7 +186,7 @@ voltam como `[]byte` e devem ser gravados com permissões restritas.
 
 ## Referência e desenvolvimento
 
-- [docs/API.md](docs/API.md): 147 operações, payloads completos, paginação e binários.
+- [docs/API.md](docs/API.md): 157 operações, payloads completos, paginação e binários.
 - [Go Reference](https://pkg.go.dev/github.com/assinafy/golang-sdk/v2): todos os símbolos exportados.
 - [SECURITY.md](SECURITY.md): comunicação privada de vulnerabilidades.
 - Modelos, contratos, campos, templates, atividades, MFA e preferências estão na

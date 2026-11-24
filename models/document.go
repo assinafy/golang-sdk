@@ -84,7 +84,7 @@ type Document struct {
 	DeclineReason *string `json:"decline_reason,omitempty"`
 	// DeclinedBy is the nullable signer that declined the document.
 	DeclinedBy *Signer `json:"declined_by,omitempty"`
-	// Tags lists labels attached to the document when included.
+	// Tags lists labels attached to the document; signer-code reads return none.
 	Tags []Tag `json:"tags,omitempty"`
 	// CreatedAt is the document creation date-time.
 	CreatedAt Timestamp `json:"created_at"`

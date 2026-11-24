@@ -55,10 +55,11 @@ func (r *PublicDocumentResource) get(ctx context.Context, documentID string, out
 	return err
 }
 
-// SendToken sends a one-time access token to a signer of a public document so
-// they can view it, without a client credential, and returns the delivery
-// result. The document must be pending signature and the recipient must be a
-// signer who has not signed yet.
+// SendToken resends the existing invitation and applicable verification code
+// by email without a client credential. Success means accepted, not delivered.
+// The document must be pending signature within its deadline, and the recipient
+// must be an unsigned email-notified signer whose step has started. A signer
+// shares a two-minute limit across an envelope; 429 includes Retry-After.
 //
 // Request: {"channel": "email", "recipient": string}, both required; an empty
 // Channel is sent as "email", and Email stands in for an empty Recipient. A nil
@@ -95,7 +96,7 @@ func (r *PublicDocumentResource) SendToken(ctx context.Context, documentID strin
 	return &out, nil
 }
 
-// SendTokenByEmail sends a one-time access token to the signer whose email is
+// SendTokenByEmail resends the existing invitation to the signer whose email is
 // email, as {"channel": "email", "recipient": email}, without a client
 // credential. Use SendToken to read the delivery result.
 //

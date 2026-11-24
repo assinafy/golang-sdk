@@ -190,6 +190,7 @@ func TestSignerAccessCodeMethodsRejectEmptyCode(t *testing.T) {
 		"SignerDocuments.SignMultiple":        func(c string) error { return documents.SignMultiple(ctx, c, []string{"d"}) },
 		"SignerDocuments.DeclineMultiple":     func(c string) error { return documents.DeclineMultiple(ctx, c, []string{"d"}, "no") },
 		"SignerDocuments.Download":            func(c string) error { _, err := documents.Download(ctx, "s", "d", "original", c); return err },
+		"Assignments.SignAndGet":              func(c string) error { _, err := assignments.SignAndGet(ctx, "d", "a", c, nil); return err },
 		"Assignments.Sign":                    func(c string) error { return assignments.Sign(ctx, "d", "a", c, nil) },
 		"Assignments.Decline":                 func(c string) error { return assignments.Decline(ctx, "d", "a", c, "no") },
 		"Assignments.GetSigningInfo":          func(c string) error { _, err := assignments.GetSigningInfo(ctx, c); return err },

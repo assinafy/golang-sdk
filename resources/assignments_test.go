@@ -291,3 +291,31 @@ func TestAssignmentsResendNotificationReturnsResult(t *testing.T) {
 		t.Errorf("result = %+v", out)
 	}
 }
+
+func TestSignAndGet(t *testing.T) {
+	for _, status := range []int{200, 400} {
+		h, _ := newTestClient(t, func(w http.ResponseWriter, req *http.Request) {
+			assertNoClientAuth(t, req)
+			if req.Method != http.MethodPost || req.URL.EscapedPath() != "/documents/doc%2F1/assignments/assignment%2F1" || req.URL.Query().Get("signer-access-code") != "code" {
+				t.Errorf("request = %s %s", req.Method, req.URL)
+			}
+			if got := decodeContractBody(t, req); !reflect.DeepEqual(got, []any{}) {
+				t.Errorf("items = %#v", got)
+			}
+			w.WriteHeader(status)
+			if status == 200 {
+				writeJSONResponse(w, `{"status":200,"data":{"id":"assignment","method":"virtual","signers":[{"id":"signer","completed":true,"email":null}],"items":[]}}`)
+			} else {
+				writeJSONResponse(w, `{"status":400,"code":"SignerDataUnconfirmed","message":"Confirm data"}`)
+			}
+		})
+		got, err := NewAssignmentResource(h).SignAndGet(context.Background(), "doc/1", "assignment/1", "code", nil)
+		if status == 200 {
+			if err != nil || got.ID != "assignment" || len(got.Signers) != 1 || !got.Signers[0].Completed || got.Signers[0].Email != nil || len(got.SigningURLs) != 0 {
+				t.Fatalf("result = %+v, %v", got, err)
+			}
+		} else if got != nil || !sdkerrors.IsStatusCode(err, 400) {
+			t.Fatalf("result = %+v, %v", got, err)
+		}
+	}
+}

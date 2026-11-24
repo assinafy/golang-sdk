@@ -259,3 +259,60 @@ func TestCertificateSignatureHandshake(t *testing.T) {
 		}
 	})
 }
+
+func TestJPEGSignatureUploads(t *testing.T) {
+	image := []byte{0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 'J', 'F', 'I', 'F', 0}
+	for _, reuse := range []bool{false, true} {
+		h, _ := newTestClient(t, func(w http.ResponseWriter, req *http.Request) {
+			assertNoClientAuth(t, req)
+			if req.Method != http.MethodPost || req.URL.Path != "/signature" || req.Header.Get("Content-Type") != "image/jpeg" || req.URL.Query().Get("signer-access-code") != "code" || req.URL.Query().Get("type") != "signature" {
+				t.Errorf("request = %s %s", req.Method, req.URL)
+			}
+			wantReuse := ""
+			if reuse {
+				wantReuse = "true"
+			}
+			if req.URL.Query().Get("reuse") != wantReuse {
+				t.Error("incorrect reuse query")
+			}
+			got, err := io.ReadAll(req.Body)
+			if err != nil || !reflect.DeepEqual(got, image) {
+				t.Fatalf("image bytes changed: %v", err)
+			}
+			writeJSONResponse(w, `{"status":200,"message":"Saved"}`)
+		})
+		r := NewSignerResource(h, "")
+		var err error
+		if reuse {
+			err = r.UploadSignatureWithReuse(context.Background(), "code", "signature", true, image)
+		} else {
+			err = r.UploadSignature(context.Background(), "code", "signature", image)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestConfirmDataEmptyAndInvalidPayloads(t *testing.T) {
+	for _, data := range []string{`[]`, `[ ]`, `null`, `{"id":"signer"}`, `["unexpected"]`, `true`} {
+		t.Run(data, func(t *testing.T) {
+			h, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				writeJSONResponse(w, `{"status":200,"data":`+data+`}`)
+			})
+			got, err := NewSignerResource(h, "").ConfirmDataAndGet(context.Background(), "doc", "code", nil)
+			if data == `["unexpected"]` || data == `true` {
+				if err == nil || got != nil {
+					t.Fatalf("invalid payload accepted: %+v, %v", got, err)
+				}
+				return
+			}
+			if err != nil || got == nil {
+				t.Fatalf("confirmation: %+v, %v", got, err)
+			}
+			if data == `{"id":"signer"}` && got.ID != "signer" {
+				t.Fatal("signer payload lost")
+			}
+		})
+	}
+}

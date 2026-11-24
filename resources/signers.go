@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -223,23 +224,31 @@ func (r *SignerResource) VerifyEmail(ctx context.Context, signerAccessCode, veri
 }
 
 // ConfirmData authenticates with signerAccessCode, sends ConfirmSignerDataRequest,
-// updates the signing-session data, and discards the documented Signer response.
-// Use ConfirmDataAndGet when the updated payload is needed.
+// updates the signing-session data, and accepts the envelope-only success.
 // PUT /documents/{document_id}/signers/confirm-data.
-//
-// Deprecated: use ConfirmDataAndGet to retain the documented response.
 func (r *SignerResource) ConfirmData(ctx context.Context, documentID, signerAccessCode string, body *models.ConfirmSignerDataRequest) error {
 	return r.confirmData(ctx, documentID, signerAccessCode, body, nil)
 }
 
-// ConfirmDataAndGet updates a signer's contact data and returns the updated
-// Signer from the documented response payload. It authenticates with
-// signerAccessCode and sends ConfirmSignerDataRequest.
+// ConfirmDataAndGet confirms data using only signerAccessCode and retains a
+// legacy Signer response when supplied. The published empty-list success returns
+// a zero-value Signer; no follow-up read is performed.
 // PUT /documents/{document_id}/signers/confirm-data.
+//
+// Deprecated: use ConfirmData, then GetSelf if current signer data is needed.
 func (r *SignerResource) ConfirmDataAndGet(ctx context.Context, documentID, signerAccessCode string, body *models.ConfirmSignerDataRequest) (*models.Signer, error) {
 	var out models.Signer
-	if err := r.confirmData(ctx, documentID, signerAccessCode, body, &out); err != nil {
+	var raw json.RawMessage
+	if err := r.confirmData(ctx, documentID, signerAccessCode, body, &raw); err != nil {
 		return nil, err
+	}
+	if len(raw) > 0 {
+		var empty []json.RawMessage
+		if err := json.Unmarshal(raw, &empty); err != nil || len(empty) != 0 {
+			if err := json.Unmarshal(raw, &out); err != nil {
+				return nil, fmt.Errorf("assinafy: decode confirmed signer: %w", err)
+			}
+		}
 	}
 	return &out, nil
 }
@@ -253,28 +262,26 @@ func (r *SignerResource) confirmData(ctx context.Context, documentID, signerAcce
 	return err
 }
 
-// UploadSignature authenticates with signerAccessCode, sends raw PNG bytes for
+// UploadSignature authenticates with signerAccessCode, sends raw PNG or JPEG bytes for
 // the requested signature type (for example, signature or initial), stores the
-// image for this signing process, and returns an envelope-only success.
+// image on the signer, and returns an envelope-only success. Documents use the
+// stored image when certificated, including documents already signed.
 // POST /signature.
 func (r *SignerResource) UploadSignature(ctx context.Context, signerAccessCode, signatureType string, image []byte) error {
 	if err := validateSignatureImage(image); err != nil {
 		return err
 	}
-	return r.uploadSignature(ctx, signerAccessCode, signatureType, nil, "image/png", image)
+	return r.uploadSignature(ctx, signerAccessCode, signatureType, nil, http.DetectContentType(image), image)
 }
 
 // UploadSignatureWithContentType authenticates with signerAccessCode and sends
-// raw image bytes with a caller-selected content type.
+// raw image bytes with a caller-selected content type. The API accepts PNG and JPEG.
 // POST /signature.
-//
-// Deprecated: the current API contract only documents image/png. Use
-// UploadSignature or UploadSignatureWithReuse.
 func (r *SignerResource) UploadSignatureWithContentType(ctx context.Context, signerAccessCode, signatureType, contentType string, image []byte) error {
 	return r.uploadSignature(ctx, signerAccessCode, signatureType, nil, contentType, image)
 }
 
-// UploadSignatureWithReuse uploads a PNG signature/initial image and records
+// UploadSignatureWithReuse uploads a PNG or JPEG signature/initial image and records
 // whether it may be reused in future signing processes. It authenticates with
 // signerAccessCode and returns an envelope-only success.
 // POST /signature?type={type}&reuse={value}.
@@ -282,12 +289,12 @@ func (r *SignerResource) UploadSignatureWithReuse(ctx context.Context, signerAcc
 	if err := validateSignatureImage(image); err != nil {
 		return err
 	}
-	return r.uploadSignature(ctx, signerAccessCode, signatureType, &reuse, "image/png", image)
+	return r.uploadSignature(ctx, signerAccessCode, signatureType, &reuse, http.DetectContentType(image), image)
 }
 
 func validateSignatureImage(image []byte) error {
-	if http.DetectContentType(image) != "image/png" {
-		return fmt.Errorf("%w: signature image is not a PNG", sdkerrors.ErrInvalidInput)
+	if contentType := http.DetectContentType(image); contentType != "image/png" && contentType != "image/jpeg" {
+		return fmt.Errorf("%w: signature image must be PNG or JPEG", sdkerrors.ErrInvalidInput)
 	}
 	return nil
 }

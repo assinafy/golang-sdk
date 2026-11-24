@@ -228,16 +228,34 @@ func (r *AssignmentResource) ResetExpirationWithRequest(ctx context.Context, doc
 }
 
 // Sign authenticates with signerAccessCode, sends the SignDocumentItem array,
-// records the signer's submitted values, and returns only error (the documented
-// success object has no declared fields). Invalid, expired, or incomplete data
-// produces an API error.
+// records the signer's submitted values, and discards the returned Assignment.
+// Virtual signing requires confirmed data; collect requires stored signature
+// and initial images. Use SignAndGet to retain the signer-facing response.
 // POST /documents/{document_id}/assignments/{assignment_id}.
 func (r *AssignmentResource) Sign(ctx context.Context, documentID, assignmentID, signerAccessCode string, items []models.SignDocumentItem) error {
+	return r.sign(ctx, documentID, assignmentID, signerAccessCode, items, nil)
+}
+
+// SignAndGet signs using only signerAccessCode and returns the signer-facing
+// Assignment: its own items, no signing URLs and redacted other-party contacts.
+// Virtual signing needs confirmed data and an empty items array; collect needs
+// signature and initial images. DigitalCertificate uses its separate handshake.
+// Repeating a completed signature returns the current assignment without changes.
+// POST /documents/{document_id}/assignments/{assignment_id}.
+func (r *AssignmentResource) SignAndGet(ctx context.Context, documentID, assignmentID, signerAccessCode string, items []models.SignDocumentItem) (*models.Assignment, error) {
+	var out models.Assignment
+	if err := r.sign(ctx, documentID, assignmentID, signerAccessCode, items, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (r *AssignmentResource) sign(ctx context.Context, documentID, assignmentID, signerAccessCode string, items []models.SignDocumentItem, out any) error {
 	path := "/documents/" + url.PathEscape(documentID) + "/assignments/" + url.PathEscape(assignmentID)
 	_, err := r.http.NewRequest(http.MethodPost, path).
 		WithSignerAccessCode(signerAccessCode).
 		WithBody(nonNil(items)).
-		Execute(ctx, nil)
+		Execute(ctx, out)
 	return err
 }
 
@@ -346,4 +364,30 @@ func (r *AssignmentResource) GetSigningInfoWithParams(ctx context.Context, signe
 		return nil, err
 	}
 	return &out, nil
+}
+
+// SignerCapacities returns each assignment signer's capacity in document order,
+// or an empty list before assignment. Uses workspace credentials or OAuth
+// documents:read; signer access codes are not accepted.
+// GET /documents/{document_id}/signer-capacities.
+func (r *AssignmentResource) SignerCapacities(ctx context.Context, documentID string) ([]models.DocumentSignerCapacity, error) {
+	var out []models.DocumentSignerCapacity
+	path := "/documents/" + url.PathEscape(documentID) + "/signer-capacities"
+	if _, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// NotificationHistory returns each assignment signer's delivery history,
+// including nullable delivered_at and opened_at. Uses workspace credentials or
+// OAuth documents:read; an unassigned document returns an empty list.
+// GET /documents/{document_id}/notification-history.
+func (r *AssignmentResource) NotificationHistory(ctx context.Context, documentID string) ([]models.SignerNotificationHistory, error) {
+	var out []models.SignerNotificationHistory
+	path := "/documents/" + url.PathEscape(documentID) + "/notification-history"
+	if _, err := r.http.NewRequest(http.MethodGet, path).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

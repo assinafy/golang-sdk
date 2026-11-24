@@ -188,3 +188,17 @@ func (r *EnvelopeResource) RemoveDocument(ctx context.Context, accountID, envelo
 	}
 	return &out, nil
 }
+
+// EstimateResendCost returns the reminder cost without sending or charging,
+// using workspace credentials or OAuth documents:write. Empty accountID uses
+// the default. The cost is per channel, independent of document count; inspect
+// Total and HasSufficientCredits. This does not validate reminder eligibility.
+// POST /accounts/{account_id}/envelopes/{envelope_id}/signers/{signer_id}/estimate-resend-cost.
+func (r *EnvelopeResource) EstimateResendCost(ctx context.Context, accountID, envelopeID, signerID string) (*models.CostEstimate, error) {
+	var out models.CostEstimate
+	path := r.path(accountID) + "/" + url.PathEscape(envelopeID) + "/signers/" + url.PathEscape(signerID) + "/estimate-resend-cost"
+	if _, err := r.http.NewRequest(http.MethodPost, path).Execute(ctx, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

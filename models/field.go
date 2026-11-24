@@ -40,6 +40,7 @@ type FieldDefinition struct {
 	// IsPreDefined reports whether Assinafy supplied the definition.
 	IsPreDefined bool `json:"is_pre_defined"`
 	// IsActive reports whether the definition may be used for new placements.
+	// Inactive fields still validate and sign existing documents and templates.
 	IsActive bool `json:"is_active"`
 	// IsRequired reports whether a signer must provide the field value.
 	IsRequired bool `json:"is_required"`
@@ -137,7 +138,8 @@ type ListFieldDefinitionsParams struct {
 }
 
 // ValidateFieldRequest is the body for POST /accounts/{id}/fields/{fid}/validate.
-// Value accepts any JSON value (string, number, boolean, …) per the spec.
+// Value accepts any JSON value. Numeric or text zero counts as a value;
+// null, false, empty text and an empty list count as absent.
 type ValidateFieldRequest struct {
 	// Value is the required JSON value to validate against the target definition.
 	Value any `json:"value"`

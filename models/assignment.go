@@ -136,6 +136,8 @@ type EstimateAssignmentCostRequest struct {
 // EstimateAssignmentCostSigner describes verification and notification costs
 // for one prospective signer. An empty object selects the API's Email defaults.
 type EstimateAssignmentCostSigner struct {
+	// SignAs is validated as a signing capacity but does not affect the price.
+	SignAs SignerCapacity `json:"sign_as,omitempty"`
 	// VerificationMethod is optionally "Email", "Whatsapp", or
 	// "DigitalCertificate", or "IdDocumentFaceMatchBasic"; empty selects Email.
 	VerificationMethod string `json:"verification_method,omitempty"`
@@ -297,7 +299,8 @@ type SignDocumentItem struct {
 	FieldID string `json:"fieldId"`
 	// PageID is the required document-page identifier.
 	PageID string `json:"pageId"`
-	// Value is the required field value submitted by the signer.
+	// Value is the required field value submitted by the signer. Signature and
+	// initial fields use stored images instead; signatureDate uses server time.
 	Value string `json:"value"`
 }
 

@@ -49,7 +49,7 @@ type Signer struct {
 type SignerNotification struct {
 	// Event is the machine-readable notification event code.
 	Event string `json:"event"`
-	// Status is the delivery status, "sent" or "failed".
+	// Status is sent, delivered, opened or failed.
 	Status string `json:"status"`
 	// ErrorCode is the nullable provider error code for a failed attempt.
 	ErrorCode *string `json:"error_code,omitempty"`
@@ -90,13 +90,13 @@ type UpdateSignerRequest struct {
 // Email and WhatsAppPhoneNumber are required for their corresponding verification
 // or notification channel. A missing contact is saved; an existing one must match.
 // Nil fields are omitted. FullName and GovernmentID are retained legacy fields
-// whose handling is not specified by this operation; use Signers.Update to set them.
+// ignored by this operation; use Signers.Update to set them.
 type ConfirmSignerDataRequest struct {
-	// FullName is a legacy optional name; support by this operation is unverified.
+	// FullName is a retained legacy field; the API ignores it.
 	FullName *string `json:"full_name,omitempty"`
 	// Email supplies the signing email, which must match an existing address.
 	Email *string `json:"email,omitempty"`
-	// GovernmentID is a legacy identifier; support by this operation is unverified.
+	// GovernmentID is a retained legacy field; the API ignores it.
 	GovernmentID *string `json:"government_id,omitempty"`
 	// WhatsAppPhoneNumber supplies the signing phone, which must match an existing number.
 	WhatsAppPhoneNumber *string `json:"whatsapp_phone_number,omitempty"`
@@ -155,6 +155,9 @@ type CompleteCertificateSignatureResult struct {
 type SignerReference struct {
 	// ID is the required existing signer identifier.
 	ID string `json:"id"`
+	// SignAs is the sender-declared signing capacity. Empty selects Sign.
+	// It is fixed at creation and read with Assignments.SignerCapacities.
+	SignAs SignerCapacity `json:"sign_as,omitempty"`
 	// VerificationMethod is an optional API verification-method code.
 	VerificationMethod string `json:"verification_method,omitempty"`
 	// NotificationMethods contains optional API delivery-channel codes.
